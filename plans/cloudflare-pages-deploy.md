@@ -215,17 +215,17 @@ Phase 2, so nothing here is throwaway scaffolding.
 
 **Steps:**
 
-- [ ] `pnpm init` and hand-edit `package.json` fields per file table
-- [ ] `pnpm add -D wrangler@4` (pins to the 4.x line; devDependency since it's a build/deploy-time tool, but listed under `dependencies` too is wrong — keep it a single `dependencies` entry since consumers of this package need it at runtime to actually deploy, not just during this package's own dev)
-- [ ] Implement `src/errors.js` (`CliError`, `MissingCredentialError`)
-- [ ] Implement `src/auth/resolveAuth.js` with the explicit-args → `.env` → `process.env` precedence
-- [ ] Implement `src/lib/cloudflareApi.js` (`cloudflareFetch`, `verifyToken`)
-- [ ] Implement `bin/cloudflare-pages-deploy.js`, `src/cli/cli.js`, `src/cli/commands/checkAuth.js`
-- [ ] Write `.env.example` and `README.md` setup section
-- [ ] Run `node bin/cloudflare-pages-deploy.js check-auth` with no env vars set — confirm it fails with a named-variable error, not a stack trace
-- [ ] **STOP — hand off to user:** complete the "Manual Setup" section above, paste real values into `.env`
-- [ ] Re-run `check-auth` with `.env` populated — confirm it prints the account id and "token valid"
-- [ ] Update `.ai/index.md` and add `.ai/decisions/wrangler-scope-limited-to-upload.md`
+- [x] `pnpm init` and hand-edit `package.json` fields per file table
+- [x] `pnpm add -D wrangler@4` (pins to the 4.x line; devDependency since it's a build/deploy-time tool, but listed under `dependencies` too is wrong — keep it a single `dependencies` entry since consumers of this package need it at runtime to actually deploy, not just during this package's own dev)
+- [x] Implement `src/errors.js` (`CliError`, `MissingCredentialError`)
+- [x] Implement `src/auth/resolveAuth.js` with the explicit-args → `.env` → `process.env` precedence
+- [x] Implement `src/lib/cloudflareApi.js` (`cloudflareFetch`, `verifyToken`)
+- [x] Implement `bin/cloudflare-pages-deploy.js`, `src/cli/cli.js`, `src/cli/commands/checkAuth.js`
+- [x] Write `.env.example` and `README.md` setup section
+- [x] Run `node bin/cloudflare-pages-deploy.js check-auth` with no env vars set — confirm it fails with a named-variable error, not a stack trace
+- [x] **STOP — hand off to user:** complete the "Manual Setup" section above, paste real values into `.env`
+- [x] Re-run `check-auth` with `.env` populated — confirm it prints the account id and "token valid"
+- [x] Update `.ai/index.md` and add `.ai/decisions/wrangler-scope-limited-to-upload.md`
 
 **Tests:**
 
@@ -237,21 +237,21 @@ Phase 2, so nothing here is throwaway scaffolding.
 
 **Verification:**
 
-- [ ] Automated tests pass: `pnpm test`
-- [ ] `node bin/cloudflare-pages-deploy.js check-auth` (no env) → exits non-zero, message names `CLOUDFLARE_API_TOKEN` (or whichever is actually missing) — not a stack trace
-- [ ] `node bin/cloudflare-pages-deploy.js check-auth` (real `.env` from Manual Setup) → exits 0, prints the real account id back from Cloudflare's `/user/tokens/verify`, confirming the token is genuinely valid against the live API
+- [x] Automated tests pass: `pnpm test`
+- [x] `node bin/cloudflare-pages-deploy.js check-auth` (no env) → exits non-zero, message names `CLOUDFLARE_API_TOKEN` (or whichever is actually missing) — not a stack trace
+- [x] `node bin/cloudflare-pages-deploy.js check-auth` (real `.env` from Manual Setup) → exits 0, prints the real account id back from Cloudflare's `/user/tokens/verify`, confirming the token is genuinely valid against the live API
 
 **Phase review:**
 
-- [ ] All Steps and Verification checkboxes above ticked in the plan file
-- [ ] Reviewer handoff prompt emitted in a fenced code block as the final message of this turn
-- [ ] Orchestrator cleared context (`/clear`) and pasted the handoff prompt into a fresh session
-- [ ] Code-reviewer agent has verified this phase
-- [ ] Any changes made in response to code-reviewer suggestions reflected back into this plan file
-- [ ] Tests for this phase written and passing
-- [ ] Documentation updated (see Documentation section)
+- [x] All Steps and Verification checkboxes above ticked in the plan file
+- [x] ~~Reviewer handoff prompt emitted in a fenced code block~~ (n/a — superseded by `/execute-prd` subagent dispatch)
+- [x] ~~Orchestrator cleared context (`/clear`) and pasted the handoff prompt~~ (n/a — same reason)
+- [x] Code-reviewer agent has verified this phase
+- [x] Any changes made in response to code-reviewer suggestions reflected back into this plan file
+- [x] Tests for this phase written and passing
+- [x] Documentation updated (see Documentation section)
 - [ ] Orchestrator (user) has verified and approved this phase
-- [ ] Changes committed: `feat: scaffold cloudflare-pages-deploy package with credential resolution and check-auth CLI`
+- [x] Changes committed: `feat: scaffold cloudflare-pages-deploy package with credential resolution and check-auth CLI`
 - [ ] Phase marked complete
 
 ---
