@@ -45,18 +45,29 @@ test('spawns with cwd set to this package directory, not the deployed site direc
   assert.ok(isAbsolute(capturedCwd));
 });
 
-test('forwards the asset directory argument through as an absolute path, verbatim', async () => {
+test('spawns process.execPath with the resolved wrangler.js path plus the given args, no shell', async () => {
+  let capturedCommand;
   let capturedArgs;
+  let capturedOpts;
   const siteDir = 'C:\\some\\site\\dir';
-  const spawnFn = (binPath, args, opts) => {
+  const binPath = 'C:\\resolved\\wrangler\\bin\\wrangler.js';
+  const spawnFn = (command, args, opts) => {
+    capturedCommand = command;
     capturedArgs = args;
+    capturedOpts = opts;
     const child = createFakeChild();
     emitOutcome(child, { exitCode: 0 });
     return child;
   };
-  await runWrangler(['pages', 'deploy', siteDir, '--project-name', 'x'], { apiToken: 't', accountId: 'a', spawnFn });
-  assert.ok(isAbsolute(siteDir));
-  assert.equal(capturedArgs[2], siteDir);
+  await runWrangler(['pages', 'deploy', siteDir, '--project-name', 'x'], {
+    apiToken: 't',
+    accountId: 'a',
+    spawnFn,
+    binPath,
+  });
+  assert.equal(capturedCommand, process.execPath);
+  assert.deepEqual(capturedArgs, [binPath, 'pages', 'deploy', siteDir, '--project-name', 'x']);
+  assert.equal(capturedOpts.shell, undefined);
 });
 
 test('passes the resolved credentials through as env vars', async () => {

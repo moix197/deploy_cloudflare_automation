@@ -67,6 +67,13 @@ export class SlugTakenError extends CliError {
   }
 }
 
+export class MissingSubdomainError extends CliError {
+  constructor(slug) {
+    super(`Cloudflare returned no subdomain for project "${slug}" — cannot build a live URL`, 'MISSING_SUBDOMAIN');
+    this.slug = slug;
+  }
+}
+
 export class ProjectCreateError extends CliError {
   constructor(cause) {
     super(`Failed to create Cloudflare Pages project: ${cause.message}`, 'PROJECT_CREATE_ERROR');

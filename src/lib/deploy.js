@@ -1,5 +1,6 @@
 import { resolve as resolvePath } from 'node:path';
 
+import { MissingSubdomainError } from '../errors.js';
 import { resolveAuth } from '../auth/resolveAuth.js';
 import { cloudflareFetch } from './cloudflareApi.js';
 import { ensureProject } from './ensureProject.js';
@@ -55,6 +56,9 @@ export async function deploy({
     );
 
     const subdomain = await readProjectSubdomainFn({ slug, apiToken, accountId });
+    if (!subdomain) {
+      throw new MissingSubdomainError(slug);
+    }
     const result = { url: `https://${subdomain}`, slug, projectName: slug, status: 'deployed' };
     onDone(result);
     return result;

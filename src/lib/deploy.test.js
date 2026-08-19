@@ -4,8 +4,10 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { isAbsolute } from 'node:path';
+
 import { deploy } from './deploy.js';
-import { RateLimitError } from '../errors.js';
+import { MissingSubdomainError, RateLimitError } from '../errors.js';
 
 function makeSiteDir() {
   const dir = mkdtempSync(join(tmpdir(), 'cfpd-deploy-'));
@@ -31,16 +33,70 @@ test('fires onStart, onProgress, onDone in order and returns the expected shape'
       resolveAuthFn: () => ({ apiToken: 't', accountId: 'a' }),
       ensureProjectFn: async () => ({ name: 'my-app' }),
       runWranglerFn: async () => ({ stdout: 'ok' }),
-      readProjectSubdomainFn: async () => 'my-app.pages.dev',
+      // Deliberately NOT derivable from `slug` (`<slug>.pages.dev` would be
+      // 'my-app.pages.dev') — proves the URL comes from the REST readback,
+      // not from constructing it out of the slug.
+      readProjectSubdomainFn: async () => 'renamed-xyz.pages.dev',
     });
 
     assert.deepEqual(calls, ['start', 'progress:uploading', 'done']);
     assert.deepEqual(result, {
-      url: 'https://my-app.pages.dev',
+      url: 'https://renamed-xyz.pages.dev',
       slug: 'my-app',
       projectName: 'my-app',
       status: 'deployed',
     });
+  }));
+
+test('passes an absolute site path and the expected wrangler args through to runWrangler', () =>
+  withSiteDir(async (dir) => {
+    let capturedArgs;
+
+    await deploy({
+      dir,
+      slug: 'my-app',
+      resolveAuthFn: () => ({ apiToken: 't', accountId: 'a' }),
+      ensureProjectFn: async () => ({}),
+      runWranglerFn: async (args) => {
+        capturedArgs = args;
+        return { stdout: '' };
+      },
+      readProjectSubdomainFn: async () => 'renamed-xyz.pages.dev',
+    });
+
+    assert.equal(capturedArgs[0], 'pages');
+    assert.equal(capturedArgs[1], 'deploy');
+    assert.ok(isAbsolute(capturedArgs[2]));
+    assert.deepEqual(capturedArgs.slice(3), [
+      '--project-name',
+      'my-app',
+      '--branch',
+      'main',
+      '--commit-dirty=true',
+    ]);
+  }));
+
+test('throws MissingSubdomainError when the REST readback returns no subdomain', () =>
+  withSiteDir(async (dir) => {
+    let onErrorCalledWith;
+
+    await assert.rejects(
+      () =>
+        deploy({
+          dir,
+          slug: 'my-app',
+          onError: (error) => {
+            onErrorCalledWith = error;
+          },
+          resolveAuthFn: () => ({ apiToken: 't', accountId: 'a' }),
+          ensureProjectFn: async () => ({}),
+          runWranglerFn: async () => ({ stdout: '' }),
+          readProjectSubdomainFn: async () => undefined,
+        }),
+      MissingSubdomainError,
+    );
+
+    assert.ok(onErrorCalledWith instanceof MissingSubdomainError);
   }));
 
 test('resolves credentials exactly once and passes the same pair to ensureProject and runWrangler', () =>
