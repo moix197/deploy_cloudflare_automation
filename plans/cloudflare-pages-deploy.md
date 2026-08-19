@@ -347,15 +347,15 @@ Phase 2, so nothing here is throwaway scaffolding.
 
 **Steps:**
 
-- [ ] Implement `src/lib/listProjects.js`
-- [ ] Implement `src/lib/deleteProject.js` with 404 → `ProjectNotFoundError` mapping
-- [ ] Wire `list` and `delete` CLI commands, export both from `src/index.js`
-- [ ] Add `ProjectNotFoundError` to `src/errors.js`
-- [ ] Run `cloudflare-pages-deploy list --json` against the real account — confirm the Phase 2 test project appears
-- [ ] Run `cloudflare-pages-deploy delete --slug <test-slug> --json` — confirm success result
-- [ ] Re-run `list --json` — confirm the project is gone
-- [ ] Run `delete` again on the same (now-gone) slug — confirm a clean `ProjectNotFoundError`, not a crash
-- [ ] Update README and `.ai/index.md`
+- [x] Implement `src/lib/listProjects.js`
+- [x] Implement `src/lib/deleteProject.js` with 404 → `ProjectNotFoundError` mapping
+- [x] Wire `list` and `delete` CLI commands, export both from `src/index.js`
+- [x] Add `ProjectNotFoundError` to `src/errors.js`
+- [x] Run `cloudflare-pages-deploy list --json` against the real account — confirm the Phase 2 test project appears
+- [x] Run `cloudflare-pages-deploy delete --slug <test-slug> --json` — confirm success result
+- [x] Re-run `list --json` — confirm the project is gone
+- [x] Run `delete` again on the same (now-gone) slug — confirm a clean `ProjectNotFoundError`, not a crash
+- [x] Update README and `.ai/index.md`
 
 **Tests:**
 
@@ -366,22 +366,22 @@ Phase 2, so nothing here is throwaway scaffolding.
 
 **Verification:**
 
-- [ ] Automated tests pass: `pnpm test`
-- [ ] Real `list --json` shows the Phase 2 test project
-- [ ] Real `delete --slug <test-slug> --json` succeeds, and a follow-up `list --json` no longer includes it
-- [ ] Real `delete` on an already-deleted slug returns a clean `ProjectNotFoundError` result, not a stack trace
+- [x] Automated tests pass: `pnpm test`
+- [x] Real `list --json` shows the Phase 2 test project
+- [x] Real `delete --slug <test-slug> --json` succeeds, and a follow-up `list --json` no longer includes it
+- [x] Real `delete` on an already-deleted slug returns a clean `ProjectNotFoundError` result, not a stack trace
 
 **Phase review:**
 
-- [ ] All Steps and Verification checkboxes above ticked in the plan file
-- [ ] Reviewer handoff prompt emitted in a fenced code block as the final message of this turn
-- [ ] Orchestrator cleared context (`/clear`) and pasted the handoff prompt into a fresh session
-- [ ] Code-reviewer agent has verified this phase
-- [ ] Any changes made in response to code-reviewer suggestions reflected back into this plan file
-- [ ] Tests for this phase written and passing
-- [ ] Documentation updated (see Documentation section)
+- [x] All Steps and Verification checkboxes above ticked in the plan file
+- [x] ~~Reviewer handoff prompt emitted in a fenced code block~~ (n/a — superseded by `/execute-prd` subagent dispatch)
+- [x] ~~Orchestrator cleared context (`/clear`) and pasted the handoff prompt~~ (n/a — same reason)
+- [x] Code-reviewer agent has verified this phase
+- [x] Any changes made in response to code-reviewer suggestions reflected back into this plan file
+- [x] Tests for this phase written and passing
+- [x] Documentation updated (see Documentation section)
 - [ ] Orchestrator (user) has verified and approved this phase
-- [ ] Changes committed: `feat: add listProjects and deleteProject operations`
+- [x] Changes committed: `feat: add listProjects and deleteProject operations`
 - [ ] Phase marked complete
 
 ---
