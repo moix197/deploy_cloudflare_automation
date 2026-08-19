@@ -9,7 +9,9 @@ function isCloudflareApiFailure(error) {
 
 async function getProject({ slug, apiToken, accountId, cloudflareFetchFn }) {
   try {
-    return await cloudflareFetchFn(`/accounts/${accountId}/pages/projects/${slug}`, { apiToken });
+    return await cloudflareFetchFn(`/accounts/${encodeURIComponent(accountId)}/pages/projects/${encodeURIComponent(slug)}`, {
+      apiToken,
+    });
   } catch (error) {
     if (error instanceof CloudflareHttpError && error.status === 404) return null;
     throw error;
@@ -17,7 +19,7 @@ async function getProject({ slug, apiToken, accountId, cloudflareFetchFn }) {
 }
 
 function createProject({ slug, apiToken, accountId, cloudflareFetchFn }) {
-  return cloudflareFetchFn(`/accounts/${accountId}/pages/projects`, {
+  return cloudflareFetchFn(`/accounts/${encodeURIComponent(accountId)}/pages/projects`, {
     apiToken,
     method: 'POST',
     body: { name: slug, production_branch: 'main' },

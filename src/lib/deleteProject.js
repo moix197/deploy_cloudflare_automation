@@ -1,5 +1,6 @@
 import { cloudflareFetch, CloudflareHttpError } from './cloudflareApi.js';
 import { ProjectNotFoundError } from '../errors.js';
+import { validateSlug } from './validate.js';
 
 /**
  * Deletes a Pages project by slug. A 404 is mapped to a typed
@@ -7,10 +8,21 @@ import { ProjectNotFoundError } from '../errors.js';
  * so callers (and the CLI) can distinguish "already gone" from a genuine
  * transport/API failure. `cloudflareFetchFn` is injectable for tests; real
  * callers never pass it.
+ *
+ * `slug` is validated with the same `validateSlug` `deploy` uses BEFORE any
+ * network call — this is the destructive path, and the exported library API
+ * is reachable directly (not just via the CLI's `!slug` guard), so a
+ * traversal-shaped slug (`..`, `a/../b`, a slug containing `/`) must never
+ * reach the URL. `encodeURIComponent` on the way into the path is defence in
+ * depth on top of that validation, not a substitute for it.
  */
 export async function deleteProject({ slug, apiToken, accountId, cloudflareFetchFn = cloudflareFetch }) {
+  validateSlug(slug);
   try {
-    await cloudflareFetchFn(`/accounts/${accountId}/pages/projects/${slug}`, { apiToken, method: 'DELETE' });
+    await cloudflareFetchFn(`/accounts/${encodeURIComponent(accountId)}/pages/projects/${encodeURIComponent(slug)}`, {
+      apiToken,
+      method: 'DELETE',
+    });
   } catch (error) {
     if (error instanceof CloudflareHttpError && error.status === 404) {
       throw new ProjectNotFoundError(slug);
