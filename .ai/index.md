@@ -9,7 +9,9 @@ anywhere real.
 
 | Module / package | Responsibility (one line) | Path | Decisions / patterns |
 | ---------------- | ------------------------- | ---- | -------------------- |
-| _empty_ | _Populate as packages are added._ | | |
+| `auth/resolveAuth` | Resolves `{apiToken, accountId}` by precedence (args → `.env` → `process.env`); throws `MissingCredentialError` naming the exact missing var | `src/auth/resolveAuth.js` | |
+| `lib/cloudflareApi` | Thin Cloudflare REST client (`cloudflareFetch`, `verifyToken`); unwraps the `{success, errors, result}` envelope into typed errors | `src/lib/cloudflareApi.js` | [wrangler-scope-limited-to-upload](decisions/wrangler-scope-limited-to-upload.md) |
+| `cli` | Arg parsing + command dispatch (`bin/cloudflare-pages-deploy.js` → `src/cli/cli.js` → `src/cli/commands/*`); shared human/`--json` output formatting | `src/cli/` | |
 
 ## Cross-cutting
 
@@ -17,5 +19,4 @@ anywhere real.
 | ------- | ------------------ | ----- |
 | _empty_ | | |
 
-> Empty scaffold. Add the first row when the first module lands. Update via the
-> `sync-knowledge` skill — don't hand-edit drift in.
+> Update via the `sync-knowledge` skill — don't hand-edit drift in.

@@ -1,0 +1,47 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { MissingCredentialError } from '../errors.js';
+
+const PACKAGE_ROOT = join(fileURLToPath(import.meta.url), '..', '..', '..');
+const ENV_FILE_PATH = join(PACKAGE_ROOT, '.env');
+
+function parseEnvFile(contents) {
+  const values = {};
+  for (const line of contents.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const separatorIndex = trimmed.indexOf('=');
+    if (separatorIndex === -1) continue;
+    const key = trimmed.slice(0, separatorIndex).trim();
+    let value = trimmed.slice(separatorIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    values[key] = value;
+  }
+  return values;
+}
+
+function readEnvFile() {
+  if (!existsSync(ENV_FILE_PATH)) return {};
+  return parseEnvFile(readFileSync(ENV_FILE_PATH, 'utf8'));
+}
+
+function resolveCredential(varName, overrideValue, envFile, env) {
+  const value = overrideValue ?? envFile[varName] ?? env[varName];
+  if (!value) throw new MissingCredentialError(varName);
+  return value;
+}
+
+/**
+ * Resolves { apiToken, accountId } by precedence: explicit args → package
+ * .env → process.env. `env`/`envFile` are injectable for tests; real callers
+ * never pass them.
+ */
+export function resolveAuth(overrides = {}, { env = process.env, envFile = readEnvFile() } = {}) {
+  const apiToken = resolveCredential('CLOUDFLARE_API_TOKEN', overrides.apiToken, envFile, env);
+  const accountId = resolveCredential('CLOUDFLARE_ACCOUNT_ID', overrides.accountId, envFile, env);
+  return { apiToken, accountId };
+}

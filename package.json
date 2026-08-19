@@ -1,0 +1,19 @@
+{
+  "name": "cloudflare-pages-deploy",
+  "version": "0.1.0",
+  "description": "Deploys an already-built static directory to Cloudflare Pages and reports back the real live URL.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "cloudflare-pages-deploy": "bin/cloudflare-pages-deploy.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "wrangler": "^4.124.0"
+  },
+  "private": true
+}
