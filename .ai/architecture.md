@@ -17,14 +17,19 @@ Internal layout, by responsibility:
 - `bin/` — executable shim only, no logic.
 - `src/cli/` — argument parsing and command dispatch. Thin by design: each
   command file parses its own flags, calls exactly one `src/lib/*` operation,
-  and shapes the result for printing. No credential resolution, no Cloudflare
-  API calls, no business logic live here.
+  and shapes the result for printing. No business logic lives here. Credential
+  resolution and direct Cloudflare API calls are also out of scope here,
+  except for `checkAuthCommand` (`src/cli/commands/checkAuth.js`), which has
+  no corresponding `src/lib/` operation to delegate to and so calls
+  `resolveAuth()` and `src/lib/cloudflareApi.js` directly — see the
+  Dependency direction section below.
 - `src/lib/` — the actual operations (`deploy`, `listProjects`,
   `deleteProject`) plus their shared building blocks (`validate`,
   `ensureProject`, `runWrangler`, `cloudflareApi`). This is also the public
   library surface, barrelled through `src/index.js`.
 - `src/auth/` — credential resolution (`resolveAuth`), consumed by `src/lib/*`
-  directly, not by `src/cli/*`.
+  directly. The one exception is `src/cli/commands/checkAuth.js`, which calls
+  `resolveAuth()` itself — see the Dependency direction section below.
 - `src/errors.js` — single home for every typed error the package throws,
   including the Cloudflare-REST-specific ones (`CloudflareHttpError`,
   `CloudflareApiError`, `CloudflareResponseParseError`); `cloudflareApi.js`
@@ -42,12 +47,21 @@ Internal layout, by responsibility:
   equivalent — see
   [wrangler-scope-limited-to-upload](decisions/wrangler-scope-limited-to-upload.md)).
 - `src/lib/{deploy,listProjects,deleteProject}.js` → `src/auth/resolveAuth.js`
-  directly. Each of the three public operations self-resolves
-  `{apiToken, accountId}` (explicit args still win over `.env`/`process.env` —
-  `resolveAuth`'s own precedence) so there is exactly one place per operation
-  that touches credentials. `src/cli/commands/*` do **not** call
-  `resolveAuth()` themselves; they call the `lib` operation and let it
-  resolve, which is what keeps the CLI entry points thin per CLAUDE.md.
+  directly, so there is exactly one place per operation that touches
+  credentials. `listProjects`/`deleteProject` accept optional
+  `{apiToken, accountId}` params and forward them into `resolveAuth`, where
+  explicit args still win over `.env`/`process.env` (`resolveAuth`'s own
+  precedence). `deploy` is asymmetric with the other two here: it takes no
+  `apiToken`/`accountId` params at all and calls `resolveAuthFn()` with no
+  arguments, so it always resolves from `.env`/`process.env` — a caller
+  cannot inject explicit credentials into `deploy()` the way it can into
+  `listProjects()`/`deleteProject()`. `src/cli/commands/{deploy,list,delete}.js` do
+  **not** call `resolveAuth()` themselves; they call the `lib` operation and
+  let it resolve, which is what keeps those CLI entry points thin per
+  CLAUDE.md. `src/cli/commands/checkAuth.js` is the one exception: `check-auth`
+  is a credential-diagnostic command with no `src/lib/` operation behind it,
+  so it necessarily calls `resolveAuth()` and `src/lib/cloudflareApi.js`
+  (`verifyToken`) directly rather than going through a `lib` operation.
 - Nothing in `src/lib/` or `src/auth/` imports from `src/cli/`, and
   `cloudflareApi.js`/`runWrangler.js` never import from the operations that
   call them — dependencies only point downward.
@@ -66,8 +80,10 @@ never constructed as `<slug>.pages.dev` — see
 → `onDone` hook → returns `{url, slug, projectName, status}`. Any error along
 the way fires `onError` before rethrowing.
 
-**`listProjects()` / `deleteProject(slug)`:** self-resolve credentials the
-same way `deploy` does → (delete only) `validateSlug` before any network call
+**`listProjects()` / `deleteProject(slug)`:** self-resolve credentials via
+`resolveAuth`, but — unlike `deploy` — accept optional `{apiToken, accountId}`
+overrides that take precedence when supplied → (delete only) `validateSlug`
+before any network call
 → REST call through `cloudflareApi.cloudflareFetch` → typed-error mapping
 (e.g. delete's 404 → `ProjectNotFoundError`, not a raw HTTP error) → stable
 output shape (`{name, subdomain, domains, productionBranch}[]` /

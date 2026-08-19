@@ -9,7 +9,7 @@ function parseDeleteArgs(args) {
   return options;
 }
 
-export async function deleteCommand(args) {
+export async function deleteCommand(args, { json } = {}) {
   const { slug } = parseDeleteArgs(args);
   if (!slug) {
     throw new CliError('delete requires --slug <slug>', 'MISSING_ARGUMENT');

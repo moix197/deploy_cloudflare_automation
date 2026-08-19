@@ -161,8 +161,9 @@ As a library:
 import { listProjects } from 'cloudflare-pages-deploy';
 
 // apiToken/accountId are optional — omit them and listProjects() resolves
-// credentials itself (explicit args → .env → process.env), exactly like
-// deploy() does.
+// credentials itself (explicit args → .env → process.env). deploy() also
+// self-resolves credentials, but it does not accept apiToken/accountId
+// overrides the way listProjects()/deleteProject() do.
 const projects = await listProjects();
 const projectsForOtherAccount = await listProjects({ apiToken, accountId });
 ```

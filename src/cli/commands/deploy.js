@@ -10,7 +10,7 @@ function parseDeployArgs(args) {
   return options;
 }
 
-export async function deployCommand(args) {
+export async function deployCommand(args, { json } = {}) {
   const { dir, slug } = parseDeployArgs(args);
   if (!dir || !slug) {
     throw new CliError('deploy requires both --dir <path> and --slug <slug>', 'MISSING_ARGUMENT');
