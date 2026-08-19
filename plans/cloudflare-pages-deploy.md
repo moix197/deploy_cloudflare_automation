@@ -281,16 +281,16 @@ Phase 2, so nothing here is throwaway scaffolding.
 
 **Steps:**
 
-- [ ] Implement `src/lib/validate.js`
-- [ ] Implement `src/lib/ensureProject.js` (idempotent create)
-- [ ] Implement `src/lib/runWrangler.js` (spawn wrapper, cwd/env control, 429 detection)
-- [ ] Implement `src/lib/deploy.js` orchestrator with `onStart`/`onProgress`/`onDone`/`onError` hooks (no retry logic — 429s surface directly, see Dependencies & Risks)
-- [ ] Implement `src/index.js`, `src/cli/commands/deploy.js`, wire into `src/cli/cli.js`
-- [ ] Add new error classes to `src/errors.js`
-- [ ] Create a throwaway local test directory (single `index.html`) in the scratchpad
-- [ ] Run `cloudflare-pages-deploy deploy --dir <scratchpad-dir> --slug <test-slug> --json` against the real account
-- [ ] Re-run the identical command a second time — confirm no "already exists" error surfaces
-- [ ] Update README and `.ai/decisions/`
+- [x] Implement `src/lib/validate.js`
+- [x] Implement `src/lib/ensureProject.js` (idempotent create)
+- [x] Implement `src/lib/runWrangler.js` (spawn wrapper, cwd/env control, 429 detection)
+- [x] Implement `src/lib/deploy.js` orchestrator with `onStart`/`onProgress`/`onDone`/`onError` hooks (no retry logic — 429s surface directly, see Dependencies & Risks)
+- [x] Implement `src/index.js`, `src/cli/commands/deploy.js`, wire into `src/cli/cli.js`
+- [x] Add new error classes to `src/errors.js`
+- [x] Create a throwaway local test directory (single `index.html`) in the scratchpad
+- [x] Run `cloudflare-pages-deploy deploy --dir <scratchpad-dir> --slug <test-slug> --json` against the real account
+- [x] Re-run the identical command a second time — confirm no "already exists" error surfaces
+- [x] Update README and `.ai/decisions/`
 
 **Tests:**
 
@@ -303,23 +303,23 @@ Phase 2, so nothing here is throwaway scaffolding.
 
 **Verification:**
 
-- [ ] Automated tests pass: `pnpm test`
-- [ ] Real deploy: `cloudflare-pages-deploy deploy --dir <scratchpad-dir> --slug <test-slug> --json` → JSON `status: "deployed"` with a `url`
-- [ ] `curl -s -o /dev/null -w "%{http_code}" <returned-url>` → `200`, and response body contains the known `index.html` marker text (Git Bash `curl` or PowerShell `(Invoke-WebRequest <url>).StatusCode`, either works on this Windows box)
-- [ ] Idempotency: re-running the exact same command does not error
-- [ ] Error-path spot check: run `deploy --dir <missing-path> --slug <test-slug>` and `deploy --dir <scratchpad-dir> --slug "Invalid_Slug!"` — confirm `DirectoryNotFoundError` / `InvalidSlugError` with clear messages, not stack traces, and neither call reaches the network
+- [x] Automated tests pass: `pnpm test`
+- [x] Real deploy: `cloudflare-pages-deploy deploy --dir <scratchpad-dir> --slug <test-slug> --json` → JSON `status: "deployed"` with a `url`
+- [x] `curl -s -o /dev/null -w "%{http_code}" <returned-url>` → `200`, and response body contains the known `index.html` marker text (Git Bash `curl` or PowerShell `(Invoke-WebRequest <url>).StatusCode`, either works on this Windows box)
+- [x] Idempotency: re-running the exact same command does not error
+- [x] Error-path spot check: run `deploy --dir <missing-path> --slug <test-slug>` and `deploy --dir <scratchpad-dir> --slug "Invalid_Slug!"` — confirm `DirectoryNotFoundError` / `InvalidSlugError` with clear messages, not stack traces, and neither call reaches the network
 
 **Phase review:**
 
-- [ ] All Steps and Verification checkboxes above ticked in the plan file
-- [ ] Reviewer handoff prompt emitted in a fenced code block as the final message of this turn
-- [ ] Orchestrator cleared context (`/clear`) and pasted the handoff prompt into a fresh session
-- [ ] Code-reviewer agent has verified this phase
-- [ ] Any changes made in response to code-reviewer suggestions reflected back into this plan file
-- [ ] Tests for this phase written and passing
-- [ ] Documentation updated (see Documentation section)
+- [x] All Steps and Verification checkboxes above ticked in the plan file
+- [x] ~~Reviewer handoff prompt emitted in a fenced code block~~ (n/a — superseded by `/execute-prd` subagent dispatch)
+- [x] ~~Orchestrator cleared context (`/clear`) and pasted the handoff prompt~~ (n/a — same reason)
+- [x] Code-reviewer agent has verified this phase
+- [x] Any changes made in response to code-reviewer suggestions reflected back into this plan file
+- [x] Tests for this phase written and passing
+- [x] Documentation updated (see Documentation section)
 - [ ] Orchestrator (user) has verified and approved this phase
-- [ ] Changes committed: `feat: add deploy command — create-if-missing project then direct upload to Cloudflare Pages`
+- [x] Changes committed: `feat: add deploy command — create-if-missing project then direct upload to Cloudflare Pages`
 - [ ] Phase marked complete
 
 ---
