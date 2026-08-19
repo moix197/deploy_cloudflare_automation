@@ -56,29 +56,18 @@ test('rejects a path-traversal slug without ever calling the network', async () 
   }
 });
 
-test('encodes the slug it sends to the API', async () => {
+test('encodes an accountId containing reserved characters into the request path', async () => {
+  // validateSlug's legal charset (lowercase letters/digits/dashes) is
+  // already URL-safe, so no legal slug's encoded form ever differs from its
+  // raw form — the slug can't prove encodeURIComponent ran. `accountId` is
+  // not slug-validated, so a `/`-bearing value gives a real, observable
+  // assertion: if encoding were dropped, the requested path would contain a
+  // raw `/` and split into the wrong number of segments.
   let calledPath;
   const cloudflareFetchFn = async (path) => {
     calledPath = path;
     return {};
   };
-
-  // validateSlug's legal charset (lowercase letters/digits/dashes) is
-  // already URL-safe, so no legal slug's encoded form differs from its raw
-  // form — the resulting path can't prove encodeURIComponent ran. Spying on
-  // the global is what actually proves the defence-in-depth call happens.
-  const originalEncodeURIComponent = globalThis.encodeURIComponent;
-  let encodedWith;
-  globalThis.encodeURIComponent = (value) => {
-    encodedWith = value;
-    return originalEncodeURIComponent(value);
-  };
-  try {
-    await deleteProject({ ...CONTEXT, slug: 'a-b', cloudflareFetchFn });
-  } finally {
-    globalThis.encodeURIComponent = originalEncodeURIComponent;
-  }
-
-  assert.equal(encodedWith, 'a-b');
-  assert.equal(calledPath, '/accounts/acc/pages/projects/a-b');
+  await deleteProject({ ...CONTEXT, accountId: 'a/b', cloudflareFetchFn });
+  assert.equal(calledPath, '/accounts/a%2Fb/pages/projects/my-app');
 });

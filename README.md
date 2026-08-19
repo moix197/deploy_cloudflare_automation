@@ -183,6 +183,7 @@ await deleteProject({ slug: 'my-app', apiToken, accountId });
 | Error | Meaning |
 | --- | --- |
 | `PROJECT_NOT_FOUND` | `delete` was called with a slug that doesn't exist in the account |
+| `INVALID_SLUG` | `delete` was called with a slug that fails the format rule above |
 
 ## Development
 

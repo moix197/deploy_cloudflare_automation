@@ -15,7 +15,10 @@ function noop() {}
  * .ai/decisions/hostname-read-back-not-constructed.md.
  */
 async function readProjectSubdomain({ slug, apiToken, accountId, cloudflareFetchFn = cloudflareFetch }) {
-  const project = await cloudflareFetchFn(`/accounts/${accountId}/pages/projects/${slug}`, { apiToken });
+  const project = await cloudflareFetchFn(
+    `/accounts/${encodeURIComponent(accountId)}/pages/projects/${encodeURIComponent(slug)}`,
+    { apiToken },
+  );
   return project.subdomain;
 }
 

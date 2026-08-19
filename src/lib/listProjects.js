@@ -14,6 +14,13 @@ import { cloudflareFetch } from './cloudflareApi.js';
 // rather than assumed.
 const PROJECTS_PER_PAGE = 10;
 
+// Defensive cap, not a real limit: the documented 100-project account cap
+// means a fully-populated account never exceeds 10 pages at
+// PROJECTS_PER_PAGE=10. A mocked (or malfunctioning) API that ignores `page`
+// and returns a full page forever would otherwise loop unbounded, growing
+// memory without limit — this stops that cleanly instead of hanging.
+const MAX_PAGES = 20;
+
 function toProjectSummary(project) {
   return {
     name: project.name,
@@ -29,12 +36,12 @@ async function fetchAllProjectPages({ apiToken, accountId, cloudflareFetchFn }) 
   let pageOfProjects;
   do {
     pageOfProjects = await cloudflareFetchFn(
-      `/accounts/${accountId}/pages/projects?page=${page}&per_page=${PROJECTS_PER_PAGE}`,
+      `/accounts/${encodeURIComponent(accountId)}/pages/projects?page=${page}&per_page=${PROJECTS_PER_PAGE}`,
       { apiToken },
     );
-    allProjects.push(...pageOfProjects);
+    allProjects.push(...(pageOfProjects ?? []));
     page += 1;
-  } while (pageOfProjects.length === PROJECTS_PER_PAGE);
+  } while (pageOfProjects?.length === PROJECTS_PER_PAGE && page <= MAX_PAGES);
   return allProjects;
 }
 

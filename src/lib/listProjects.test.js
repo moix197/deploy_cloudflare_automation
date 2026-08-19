@@ -40,6 +40,16 @@ function makeProject(index) {
   return { name: `app-${index}`, subdomain: `app-${index}.pages.dev`, production_branch: 'main' };
 }
 
+test('encodes an accountId containing reserved characters into the request path', async () => {
+  let calledPath;
+  const cloudflareFetchFn = async (path) => {
+    calledPath = path;
+    return [];
+  };
+  await listProjects({ apiToken: 'token', accountId: 'a/b', cloudflareFetchFn });
+  assert.equal(calledPath, '/accounts/a%2Fb/pages/projects?page=1&per_page=10');
+});
+
 test('a single, non-full page does not trigger a second request', async () => {
   let callCount = 0;
   const cloudflareFetchFn = async (path) => {
@@ -89,4 +99,48 @@ test('stops once a page comes back with fewer than per_page results', async () =
   const result = await listProjects({ ...CONTEXT, cloudflareFetchFn });
   assert.equal(callCount, 3);
   assert.equal(result.length, 21);
+});
+
+test('a result set that is an exact multiple of the page size still terminates', async () => {
+  // 20 projects across two full pages of 10; the third (empty) page proves
+  // the loop keeps going past two full pages but still stops once a
+  // short page comes back — not because it hit MAX_PAGES.
+  const pageOne = Array.from({ length: 10 }, (_, i) => makeProject(i));
+  const pageTwo = Array.from({ length: 10 }, (_, i) => makeProject(10 + i));
+  let callCount = 0;
+  const cloudflareFetchFn = async (path) => {
+    callCount += 1;
+    const page = pageNumberFromPath(path);
+    if (page === 1) return pageOne;
+    if (page === 2) return pageTwo;
+    return [];
+  };
+  const result = await listProjects({ ...CONTEXT, cloudflareFetchFn });
+  assert.equal(callCount, 3);
+  assert.equal(result.length, 20);
+});
+
+test('a null/undefined page does not throw and is treated as the end of results', async () => {
+  const cloudflareFetchFn = async () => undefined;
+  const result = await listProjects({ ...CONTEXT, cloudflareFetchFn });
+  assert.deepEqual(result, []);
+});
+
+test('an API that ignores `page` and always returns a full page terminates at MAX_PAGES instead of hanging', async () => {
+  // Bounded mock: `full page forever` is exactly the pathological input the
+  // MAX_PAGES cap exists to survive. Capping the mock's own responses (not
+  // just asserting the call count afterwards) means a regression that
+  // removes the cap fails this test fast via the assertion below rather than
+  // hanging the whole suite.
+  let callCount = 0;
+  const cloudflareFetchFn = async () => {
+    callCount += 1;
+    if (callCount > 25) {
+      throw new Error('runaway pagination: fetch called more than 25 times');
+    }
+    return Array.from({ length: 10 }, (_, i) => makeProject(i));
+  };
+  const result = await listProjects({ ...CONTEXT, cloudflareFetchFn });
+  assert.equal(callCount, 20, 'expected the loop to stop at MAX_PAGES');
+  assert.equal(result.length, 200);
 });
