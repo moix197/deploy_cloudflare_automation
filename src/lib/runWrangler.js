@@ -1,10 +1,21 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { RateLimitError, WranglerExecutionError } from '../errors.js';
+import { MissingWranglerEntrypointError, RateLimitError, WranglerExecutionError } from '../errors.js';
 
 const PACKAGE_ROOT = join(fileURLToPath(import.meta.url), '..', '..', '..');
+
+// Resolve wrangler's package root via Node's own resolver rather than
+// hardcoding `<pkg>/node_modules/wrangler/...` — that hardcoded path breaks
+// under hoisted / npm / consumer-monorepo layouts where wrangler is not
+// nested directly under this package. `require.resolve` is pointed at
+// `wrangler/package.json` (not the bin subpath) because wrangler's `exports`
+// map blocks resolving the bin file directly; `dirname` of the resolved
+// package.json gives the real package root in any layout.
+const WRANGLER_PACKAGE_ROOT = dirname(createRequire(import.meta.url).resolve('wrangler/package.json'));
 // Spawn the wrangler JS entrypoint directly via `process.execPath`, not the
 // `.bin/wrangler(.cmd)` shim. A shim requires `shell: true` on Windows to
 // execute, and Node does not quote argv when `shell` is true — any path
@@ -12,7 +23,7 @@ const PACKAGE_ROOT = join(fileURLToPath(import.meta.url), '..', '..', '..');
 // untrusted path becomes a shell-injection vector. Invoking the JS file with
 // `process.execPath` needs no shell at all, so argv reaches wrangler intact
 // on every platform.
-const WRANGLER_BIN = join(PACKAGE_ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+const WRANGLER_BIN = join(WRANGLER_PACKAGE_ROOT, 'bin', 'wrangler.js');
 
 function isRateLimitedFailure(stderr) {
   return /\b429\b/.test(stderr) || /rate.?limit/i.test(stderr);
@@ -45,6 +56,11 @@ function buildEnv({ apiToken, accountId }) {
  */
 export function runWrangler(args, { apiToken, accountId, spawnFn = spawn, binPath = WRANGLER_BIN } = {}) {
   return new Promise((resolve, reject) => {
+    if (!existsSync(binPath)) {
+      reject(new MissingWranglerEntrypointError(binPath));
+      return;
+    }
+
     const child = spawnFn(process.execPath, [binPath, ...args], {
       cwd: PACKAGE_ROOT,
       env: buildEnv({ apiToken, accountId }),

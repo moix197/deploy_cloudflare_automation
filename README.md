@@ -116,7 +116,9 @@ error message verbatim via `WranglerExecutionError`.
 | `EMPTY_DIRECTORY` | `--dir` exists but has no files |
 | `SLUG_TAKEN` | Project name is taken by a different account — choose another slug |
 | `PROJECT_CREATE_ERROR` | Project creation failed for any other reason (e.g. the 100-project cap); carries Cloudflare's real code/message |
+| `MISSING_SUBDOMAIN` | Cloudflare returned no subdomain for the project after upload — cannot build a live URL |
 | `WRANGLER_EXECUTION_ERROR` | `wrangler pages deploy` exited non-zero; carries its stderr verbatim |
+| `MISSING_WRANGLER_ENTRYPOINT` | Resolved wrangler entrypoint (`bin/wrangler.js`) does not exist on disk at the resolved path |
 | `RATE_LIMIT` | Cloudflare rate-limited the upload (HTTP 429); not auto-retried — retry later |
 
 ## Development

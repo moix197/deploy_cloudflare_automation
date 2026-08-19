@@ -52,6 +52,13 @@ export class WranglerExecutionError extends CliError {
   }
 }
 
+export class MissingWranglerEntrypointError extends CliError {
+  constructor(binPath) {
+    super(`wrangler entrypoint not found at resolved path: ${binPath}`, 'MISSING_WRANGLER_ENTRYPOINT');
+    this.binPath = binPath;
+  }
+}
+
 export class RateLimitError extends CliError {
   constructor(stderr) {
     super('Cloudflare rate-limited the upload (HTTP 429). Wait a bit and retry.', 'RATE_LIMIT');

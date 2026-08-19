@@ -1,10 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { isAbsolute } from 'node:path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 
 import { runWrangler } from './runWrangler.js';
-import { RateLimitError, WranglerExecutionError } from '../errors.js';
+import { MissingWranglerEntrypointError, RateLimitError, WranglerExecutionError } from '../errors.js';
+
+function withFakeBinPath(fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'cfpd-wrangler-bin-'));
+  const binPath = join(dir, 'wrangler.js');
+  writeFileSync(binPath, '');
+  try {
+    return fn(binPath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function createFakeChild() {
   const child = new EventEmitter();
@@ -45,29 +58,41 @@ test('spawns with cwd set to this package directory, not the deployed site direc
   assert.ok(isAbsolute(capturedCwd));
 });
 
-test('spawns process.execPath with the resolved wrangler.js path plus the given args, no shell', async () => {
-  let capturedCommand;
-  let capturedArgs;
-  let capturedOpts;
-  const siteDir = 'C:\\some\\site\\dir';
-  const binPath = 'C:\\resolved\\wrangler\\bin\\wrangler.js';
-  const spawnFn = (command, args, opts) => {
-    capturedCommand = command;
-    capturedArgs = args;
-    capturedOpts = opts;
-    const child = createFakeChild();
-    emitOutcome(child, { exitCode: 0 });
-    return child;
+test('spawns process.execPath with the resolved wrangler.js path plus the given args, no shell', async () =>
+  withFakeBinPath(async (binPath) => {
+    let capturedCommand;
+    let capturedArgs;
+    let capturedOpts;
+    const siteDir = 'C:\\some\\site\\dir';
+    const spawnFn = (command, args, opts) => {
+      capturedCommand = command;
+      capturedArgs = args;
+      capturedOpts = opts;
+      const child = createFakeChild();
+      emitOutcome(child, { exitCode: 0 });
+      return child;
+    };
+    await runWrangler(['pages', 'deploy', siteDir, '--project-name', 'x'], {
+      apiToken: 't',
+      accountId: 'a',
+      spawnFn,
+      binPath,
+    });
+    assert.equal(capturedCommand, process.execPath);
+    assert.deepEqual(capturedArgs, [binPath, 'pages', 'deploy', siteDir, '--project-name', 'x']);
+    assert.equal(capturedOpts.shell, undefined);
+  }));
+
+test('throws MissingWranglerEntrypointError naming the resolved path when the binPath does not exist on disk', async () => {
+  const binPath = join(tmpdir(), 'cfpd-does-not-exist', 'wrangler.js');
+  const spawnFn = () => {
+    throw new Error('spawnFn should never be called when the entrypoint is missing');
   };
-  await runWrangler(['pages', 'deploy', siteDir, '--project-name', 'x'], {
-    apiToken: 't',
-    accountId: 'a',
-    spawnFn,
-    binPath,
-  });
-  assert.equal(capturedCommand, process.execPath);
-  assert.deepEqual(capturedArgs, [binPath, 'pages', 'deploy', siteDir, '--project-name', 'x']);
-  assert.equal(capturedOpts.shell, undefined);
+
+  await assert.rejects(
+    () => runWrangler(['pages', 'deploy', 'C:\\abs\\dir'], { apiToken: 't', accountId: 'a', spawnFn, binPath }),
+    (error) => error instanceof MissingWranglerEntrypointError && error.binPath === binPath,
+  );
 });
 
 test('passes the resolved credentials through as env vars', async () => {

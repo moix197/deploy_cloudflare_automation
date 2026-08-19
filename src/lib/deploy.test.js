@@ -2,9 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { isAbsolute } from 'node:path';
+import { join, relative as relativePath, resolve as resolvePath } from 'node:path';
 
 import { deploy } from './deploy.js';
 import { MissingSubdomainError, RateLimitError } from '../errors.js';
@@ -48,12 +46,14 @@ test('fires onStart, onProgress, onDone in order and returns the expected shape'
     });
   }));
 
-test('passes an absolute site path and the expected wrangler args through to runWrangler', () =>
-  withSiteDir(async (dir) => {
+test('resolves a relative site dir to the expected absolute path before passing it to runWrangler', () =>
+  withSiteDir(async (absoluteDir) => {
     let capturedArgs;
+    const relativeDir = relativePath(process.cwd(), absoluteDir);
+    const expectedResolvedDir = resolvePath(relativeDir);
 
     await deploy({
-      dir,
+      dir: relativeDir,
       slug: 'my-app',
       resolveAuthFn: () => ({ apiToken: 't', accountId: 'a' }),
       ensureProjectFn: async () => ({}),
@@ -66,7 +66,7 @@ test('passes an absolute site path and the expected wrangler args through to run
 
     assert.equal(capturedArgs[0], 'pages');
     assert.equal(capturedArgs[1], 'deploy');
-    assert.ok(isAbsolute(capturedArgs[2]));
+    assert.equal(capturedArgs[2], expectedResolvedDir);
     assert.deepEqual(capturedArgs.slice(3), [
       '--project-name',
       'my-app',
