@@ -11,3 +11,6 @@ node_modules/
 # OS / editor
 Thumbs.db
 .DS_Store
+
+# logs
+*.log
