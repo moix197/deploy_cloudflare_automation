@@ -166,14 +166,14 @@ requires git history to exist. So: init + branch, no worktree.
 
 **Steps:**
 
-- [ ] Confirm branch name (`cloudflare-pages-deploy`) and base ref (`main`,
+- [x] Confirm branch name (`cloudflare-pages-deploy`) and base ref (`main`,
       created fresh) with the user
-- [ ] `git init -b main` in `C:\proyectos\web-express\deploy_cloudflare_automation`
-- [ ] Add a root `.gitignore` (`node_modules/`, `.env`, `*.log`) and commit
+- [x] `git init -b main` in `C:\proyectos\web-express\deploy_cloudflare_automation`
+- [x] Add a root `.gitignore` (`node_modules/`, `.env`, `*.log`) and commit
       the existing scaffold (`.ai/`, `.claude/`, `CLAUDE.md`, `plans/`) as an
       initial commit on `main`
-- [ ] `git checkout -b cloudflare-pages-deploy`
-- [ ] Verify the branch is active (`git branch --show-current` → `cloudflare-pages-deploy`)
+- [x] `git checkout -b cloudflare-pages-deploy`
+- [x] Verify the branch is active (`git branch --show-current` → `cloudflare-pages-deploy`)
 
 ---
 
