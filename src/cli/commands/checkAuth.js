@@ -26,9 +26,13 @@ async function verifyOrThrowInvalidCredential(apiToken, verifyTokenFn) {
 
 /**
  * Resolves credentials and verifies the token against the real Cloudflare
- * API. `resolveAuthFn`/`verifyTokenFn` are injectable for tests.
+ * API. Uniform command-handler contract, matching every other CLI command:
+ * `(args, options)` — `args` is unused here (check-auth takes no flags of
+ * its own beyond the global `--json` `cli.js` already handles), and
+ * `resolveAuthFn`/`verifyTokenFn` are DI overrides for tests, never supplied
+ * by `cli.js` in production.
  */
-export async function checkAuth({ resolveAuthFn = resolveAuth, verifyTokenFn = verifyToken } = {}) {
+export async function checkAuthCommand(args = [], { resolveAuthFn = resolveAuth, verifyTokenFn = verifyToken } = {}) {
   const { apiToken, accountId } = resolveAuthFn();
   const result = await verifyOrThrowInvalidCredential(apiToken, verifyTokenFn);
   return { accountId, tokenStatus: result.status, tokenId: result.id };

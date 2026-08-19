@@ -38,7 +38,7 @@ async function withMockedFetch(result, run) {
 
 test('human output prints a table of projects and returns nothing extra', async () => {
   const projects = [{ name: 'my-app', subdomain: 'my-app.pages.dev', production_branch: 'main' }];
-  const { returned, logs } = await withMockedFetch(projects, () => listCommand([]));
+  const { returned, logs } = await withMockedFetch(projects, () => listCommand([], { json: false }));
 
   assert.deepEqual(returned, {});
   assert.equal(logs.length, 1);
@@ -56,7 +56,7 @@ test('human output prints a table of projects and returns nothing extra', async 
 });
 
 test('human output prints the empty-account message when there are no projects', async () => {
-  const { returned, logs } = await withMockedFetch([], () => listCommand([]));
+  const { returned, logs } = await withMockedFetch([], () => listCommand([], { json: false }));
 
   assert.deepEqual(returned, {});
   assert.deepEqual(logs, ['No projects found.']);
@@ -64,7 +64,7 @@ test('human output prints the empty-account message when there are no projects',
 
 test('--json returns {projects, count} and prints nothing itself', async () => {
   const projects = [{ name: 'my-app', subdomain: 'my-app.pages.dev', production_branch: 'main' }];
-  const { returned, logs } = await withMockedFetch(projects, () => listCommand(['--json']));
+  const { returned, logs } = await withMockedFetch(projects, () => listCommand([], { json: true }));
 
   assert.deepEqual(returned, {
     projects: [{ name: 'my-app', subdomain: 'my-app.pages.dev', domains: [], productionBranch: 'main' }],
@@ -74,7 +74,7 @@ test('--json returns {projects, count} and prints nothing itself', async () => {
 });
 
 test('--json returns an empty projects array and zero count for an empty account', async () => {
-  const { returned, logs } = await withMockedFetch([], () => listCommand(['--json']));
+  const { returned, logs } = await withMockedFetch([], () => listCommand([], { json: true }));
 
   assert.deepEqual(returned, { projects: [], count: 0 });
   assert.deepEqual(logs, []);

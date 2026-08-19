@@ -1,11 +1,11 @@
-import { checkAuth } from './commands/checkAuth.js';
+import { checkAuthCommand } from './commands/checkAuth.js';
 import { deployCommand } from './commands/deploy.js';
 import { listCommand } from './commands/list.js';
 import { deleteCommand } from './commands/delete.js';
 import { CliError } from '../errors.js';
 
 const commands = {
-  'check-auth': checkAuth,
+  'check-auth': checkAuthCommand,
   deploy: deployCommand,
   list: listCommand,
   delete: deleteCommand,
@@ -43,7 +43,7 @@ export async function runCli(argv) {
     return;
   }
   try {
-    printResult(await handler(rest), json);
+    printResult(await handler(rest, { json }), json);
   } catch (error) {
     printError(error, json);
     process.exitCode = 1;

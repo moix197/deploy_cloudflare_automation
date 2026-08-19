@@ -1,4 +1,5 @@
 import { cloudflareFetch } from './cloudflareApi.js';
+import { resolveAuth } from '../auth/resolveAuth.js';
 
 // Cloudflare paginates this endpoint; an account near the documented
 // 100-project cap needs more than one page. `cloudflareFetch` only returns
@@ -48,10 +49,13 @@ async function fetchAllProjectPages({ apiToken, accountId, cloudflareFetchFn }) 
 /**
  * Lists every Pages project in the account, mapped to the package's stable
  * `{name, subdomain, domains, productionBranch}` shape rather than
- * Cloudflare's raw project object. `cloudflareFetchFn` is injectable for
- * tests; real callers never pass it.
+ * Cloudflare's raw project object. Self-resolves `{apiToken, accountId}` the
+ * same way `deploy()` does when the caller doesn't supply them (explicit
+ * args still win — see `resolveAuth`'s precedence). `cloudflareFetchFn`/
+ * `resolveAuthFn` are injectable for tests; real callers never pass them.
  */
-export async function listProjects({ apiToken, accountId, cloudflareFetchFn = cloudflareFetch }) {
+export async function listProjects({ apiToken, accountId, cloudflareFetchFn = cloudflareFetch, resolveAuthFn = resolveAuth } = {}) {
+  ({ apiToken, accountId } = resolveAuthFn({ apiToken, accountId }));
   const projects = await fetchAllProjectPages({ apiToken, accountId, cloudflareFetchFn });
   return projects.map(toProjectSummary);
 }

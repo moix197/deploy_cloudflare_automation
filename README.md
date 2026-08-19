@@ -94,6 +94,23 @@ const { url, status } = await deploy({ dir: '/abs/path/to/site', slug: 'my-app' 
 `deploy()` also accepts `onStart`/`onProgress`/`onDone`/`onError` hooks so a
 consumer can record status without polling.
 
+Every typed error class the package throws (`SlugTakenError`,
+`ProjectNotFoundError`, `RateLimitError`, etc. — see the error tables below)
+is exported from the package root too, so a consumer can branch on
+`instanceof`/`.code` without reaching into `src/errors.js`:
+
+```js
+import { deploy, SlugTakenError } from 'cloudflare-pages-deploy';
+
+try {
+  await deploy({ dir: '/abs/path', slug: 'my-app' });
+} catch (error) {
+  if (error instanceof SlugTakenError) {
+    // pick a different slug
+  }
+}
+```
+
 Slugs must be 1-58 characters, lowercase letters/digits/dashes only, and
 cannot start or end with a dash — this is validated locally before any
 network call. Note: whether `<slug>.pages.dev` uniqueness is scoped
@@ -143,7 +160,11 @@ As a library:
 ```js
 import { listProjects } from 'cloudflare-pages-deploy';
 
-const projects = await listProjects({ apiToken, accountId });
+// apiToken/accountId are optional — omit them and listProjects() resolves
+// credentials itself (explicit args → .env → process.env), exactly like
+// deploy() does.
+const projects = await listProjects();
+const projectsForOtherAccount = await listProjects({ apiToken, accountId });
 ```
 
 ### `delete`
@@ -175,7 +196,8 @@ As a library:
 ```js
 import { deleteProject } from 'cloudflare-pages-deploy';
 
-await deleteProject({ slug: 'my-app', apiToken, accountId });
+// apiToken/accountId are optional here too — self-resolved when omitted.
+await deleteProject({ slug: 'my-app' });
 ```
 
 #### Error codes (list/delete)

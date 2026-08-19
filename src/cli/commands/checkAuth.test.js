@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { checkAuth } from './checkAuth.js';
+import { checkAuthCommand } from './checkAuth.js';
 import { InvalidCredentialError } from '../../errors.js';
 import { CloudflareApiError, CloudflareHttpError } from '../../lib/cloudflareApi.js';
 
 test('returns account id and token status when the token is valid', async () => {
-  const result = await checkAuth({
+  const result = await checkAuthCommand([], {
     resolveAuthFn: () => ({ apiToken: 'token', accountId: 'account-1' }),
     verifyTokenFn: async () => ({ id: 'token-id', status: 'active' }),
   });
@@ -16,7 +16,7 @@ test('returns account id and token status when the token is valid', async () => 
 test('throws InvalidCredentialError, distinct from a missing-var error, when Cloudflare rejects the token', async () => {
   await assert.rejects(
     () =>
-      checkAuth({
+      checkAuthCommand([], {
         resolveAuthFn: () => ({ apiToken: 'bad-token', accountId: 'account-1' }),
         verifyTokenFn: async () => {
           throw new CloudflareApiError([{ code: 1000, message: 'Invalid API Token' }]);
@@ -29,7 +29,7 @@ test('throws InvalidCredentialError, distinct from a missing-var error, when Clo
 test('throws InvalidCredentialError when Cloudflare returns HTTP 401/403 for the token', async () => {
   await assert.rejects(
     () =>
-      checkAuth({
+      checkAuthCommand([], {
         resolveAuthFn: () => ({ apiToken: 'bad-token', accountId: 'account-1' }),
         verifyTokenFn: async () => {
           throw new CloudflareHttpError(403, 'Forbidden');
@@ -43,7 +43,7 @@ test('propagates a transport failure unchanged instead of misreporting it as an 
   const transportError = new Error('getaddrinfo ENOTFOUND api.cloudflare.com');
   await assert.rejects(
     () =>
-      checkAuth({
+      checkAuthCommand([], {
         resolveAuthFn: () => ({ apiToken: 'token', accountId: 'account-1' }),
         verifyTokenFn: async () => {
           throw transportError;
@@ -56,7 +56,7 @@ test('propagates a transport failure unchanged instead of misreporting it as an 
 test('propagates a Cloudflare 500 unchanged instead of misreporting it as an invalid token', async () => {
   await assert.rejects(
     () =>
-      checkAuth({
+      checkAuthCommand([], {
         resolveAuthFn: () => ({ apiToken: 'token', accountId: 'account-1' }),
         verifyTokenFn: async () => {
           throw new CloudflareHttpError(500, 'Internal Server Error');

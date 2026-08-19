@@ -95,3 +95,55 @@ export class ProjectNotFoundError extends CliError {
     this.slug = slug;
   }
 }
+
+/**
+ * Shared normalization for Cloudflare's `errors` array so every error type
+ * exposes the same public shape: `.errors` always an array, and the first
+ * error's code available for callers to branch on (e.g. code 8000003
+ * meaning "slug already taken").
+ */
+function normalizeCloudflareErrors(errors) {
+  const normalized = errors ?? [];
+  const [first] = normalized;
+  return { errors: normalized, cloudflareErrorCode: first?.code };
+}
+
+export class CloudflareHttpError extends CliError {
+  constructor(status, statusText, errors) {
+    const { errors: normalizedErrors, cloudflareErrorCode } = normalizeCloudflareErrors(errors);
+    const [first] = normalizedErrors;
+    const message = first
+      ? `Cloudflare API HTTP error: ${status} ${statusText} (Cloudflare error ${first.code}: ${first.message})`
+      : `Cloudflare API HTTP error: ${status} ${statusText}`;
+    super(message, 'CLOUDFLARE_HTTP_ERROR');
+    this.status = status;
+    this.errors = normalizedErrors;
+    this.cloudflareErrorCode = cloudflareErrorCode;
+  }
+}
+
+export class CloudflareApiError extends CliError {
+  constructor(errors) {
+    const { errors: normalizedErrors, cloudflareErrorCode } = normalizeCloudflareErrors(errors);
+    const [first] = normalizedErrors;
+    const message = first
+      ? `Cloudflare API error ${first.code}: ${first.message}`
+      : 'Cloudflare API returned an unsuccessful response';
+    super(message, 'CLOUDFLARE_API_ERROR');
+    this.errors = normalizedErrors;
+    this.cloudflareErrorCode = cloudflareErrorCode;
+  }
+}
+
+/**
+ * Distinct from `CloudflareApiError`: this means the response body could not
+ * be parsed at all (a 2xx with an empty/non-JSON body), not that Cloudflare
+ * understood the request and rejected it. Callers like `checkAuth` must not
+ * treat this as a rejected credential.
+ */
+export class CloudflareResponseParseError extends CliError {
+  constructor(status, statusText) {
+    super(`Cloudflare API returned an unparseable response body: ${status} ${statusText}`, 'CLOUDFLARE_PARSE_ERROR');
+    this.status = status;
+  }
+}

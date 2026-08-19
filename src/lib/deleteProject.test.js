@@ -56,6 +56,38 @@ test('rejects a path-traversal slug without ever calling the network', async () 
   }
 });
 
+test('self-resolves credentials via resolveAuthFn when apiToken/accountId are not supplied', async () => {
+  let calledWithOverrides;
+  const resolveAuthFn = (overrides) => {
+    calledWithOverrides = overrides;
+    return { apiToken: 'resolved-token', accountId: 'resolved-acc' };
+  };
+  let calledPath;
+  const cloudflareFetchFn = async (path) => {
+    calledPath = path;
+    return {};
+  };
+  await deleteProject({ slug: 'my-app', cloudflareFetchFn, resolveAuthFn });
+  assert.deepEqual(calledWithOverrides, { apiToken: undefined, accountId: undefined });
+  assert.equal(calledPath, '/accounts/resolved-acc/pages/projects/my-app');
+});
+
+test('passes explicitly-supplied apiToken/accountId through to resolveAuthFn as overrides (explicit wins)', async () => {
+  let calledWithOverrides;
+  const resolveAuthFn = (overrides) => {
+    calledWithOverrides = overrides;
+    return overrides;
+  };
+  let calledPath;
+  const cloudflareFetchFn = async (path) => {
+    calledPath = path;
+    return {};
+  };
+  await deleteProject({ ...CONTEXT, cloudflareFetchFn, resolveAuthFn });
+  assert.deepEqual(calledWithOverrides, { apiToken: 'token', accountId: 'acc' });
+  assert.equal(calledPath, '/accounts/acc/pages/projects/my-app');
+});
+
 test('encodes an accountId containing reserved characters into the request path', async () => {
   // validateSlug's legal charset (lowercase letters/digits/dashes) is
   // already URL-safe, so no legal slug's encoded form ever differs from its

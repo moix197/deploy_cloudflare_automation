@@ -120,6 +120,38 @@ test('a result set that is an exact multiple of the page size still terminates',
   assert.equal(result.length, 20);
 });
 
+test('self-resolves credentials via resolveAuthFn when apiToken/accountId are not supplied', async () => {
+  let calledWithOverrides;
+  const resolveAuthFn = (overrides) => {
+    calledWithOverrides = overrides;
+    return { apiToken: 'resolved-token', accountId: 'resolved-acc' };
+  };
+  let calledPath;
+  const cloudflareFetchFn = async (path) => {
+    calledPath = path;
+    return [];
+  };
+  await listProjects({ cloudflareFetchFn, resolveAuthFn });
+  assert.deepEqual(calledWithOverrides, { apiToken: undefined, accountId: undefined });
+  assert.equal(calledPath, '/accounts/resolved-acc/pages/projects?page=1&per_page=10');
+});
+
+test('passes explicitly-supplied apiToken/accountId through to resolveAuthFn as overrides (explicit wins)', async () => {
+  let calledWithOverrides;
+  const resolveAuthFn = (overrides) => {
+    calledWithOverrides = overrides;
+    return overrides;
+  };
+  let calledPath;
+  const cloudflareFetchFn = async (path) => {
+    calledPath = path;
+    return [];
+  };
+  await listProjects({ apiToken: 'explicit-token', accountId: 'explicit-acc', cloudflareFetchFn, resolveAuthFn });
+  assert.deepEqual(calledWithOverrides, { apiToken: 'explicit-token', accountId: 'explicit-acc' });
+  assert.equal(calledPath, '/accounts/explicit-acc/pages/projects?page=1&per_page=10');
+});
+
 test('a null/undefined page does not throw and is treated as the end of results', async () => {
   const cloudflareFetchFn = async () => undefined;
   const result = await listProjects({ ...CONTEXT, cloudflareFetchFn });

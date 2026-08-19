@@ -14,8 +14,8 @@ function noop() {}
  * assuming `<slug>.pages.dev` — see
  * .ai/decisions/hostname-read-back-not-constructed.md.
  */
-async function readProjectSubdomain({ slug, apiToken, accountId, cloudflareFetchFn = cloudflareFetch }) {
-  const project = await cloudflareFetchFn(
+async function readProjectSubdomain({ slug, apiToken, accountId }) {
+  const project = await cloudflareFetch(
     `/accounts/${encodeURIComponent(accountId)}/pages/projects/${encodeURIComponent(slug)}`,
     { apiToken },
   );

@@ -1,4 +1,3 @@
-import { resolveAuth } from '../../auth/resolveAuth.js';
 import { listProjects } from '../../lib/listProjects.js';
 
 const COLUMNS = [
@@ -28,13 +27,14 @@ function formatProjectsTable(projects) {
  * not usable output. So for the human path this command prints its own
  * table directly and returns `{}` (nothing left for `printResult` to add);
  * `--json` keeps returning `{projects, count}` so `printResult` emits the
- * documented JSON shape unchanged.
+ * documented JSON shape unchanged. `json` is the same flag `cli.js` already
+ * computed from argv — read from the options bag it passes as the second
+ * argument, not re-parsed from `args` here.
  */
-export async function listCommand(args = []) {
-  const { apiToken, accountId } = resolveAuth();
-  const projects = await listProjects({ apiToken, accountId });
+export async function listCommand(args = [], { json = false } = {}) {
+  const projects = await listProjects();
 
-  if (!args.includes('--json')) {
+  if (!json) {
     console.log(projects.length === 0 ? 'No projects found.' : formatProjectsTable(projects));
     return {};
   }

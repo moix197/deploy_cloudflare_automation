@@ -1,4 +1,3 @@
-import { resolveAuth } from '../../auth/resolveAuth.js';
 import { deleteProject } from '../../lib/deleteProject.js';
 import { CliError } from '../../errors.js';
 
@@ -15,6 +14,5 @@ export async function deleteCommand(args) {
   if (!slug) {
     throw new CliError('delete requires --slug <slug>', 'MISSING_ARGUMENT');
   }
-  const { apiToken, accountId } = resolveAuth();
-  return deleteProject({ slug, apiToken, accountId });
+  return deleteProject({ slug });
 }
