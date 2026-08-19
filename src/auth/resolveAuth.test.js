@@ -34,6 +34,17 @@ test('falls back to process.env when no args or .env values are set', () => {
   assert.deepEqual(result, { apiToken: 'env-token', accountId: 'env-account' });
 });
 
+test('an empty .env value falls through to process.env instead of shadowing it', () => {
+  const result = resolveAuth(
+    {},
+    {
+      env: { CLOUDFLARE_API_TOKEN: 'env-token', CLOUDFLARE_ACCOUNT_ID: 'env-account' },
+      envFile: { CLOUDFLARE_API_TOKEN: '', CLOUDFLARE_ACCOUNT_ID: '   ' },
+    },
+  );
+  assert.deepEqual(result, { apiToken: 'env-token', accountId: 'env-account' });
+});
+
 test('throws MissingCredentialError naming CLOUDFLARE_API_TOKEN when it is missing', () => {
   assert.throws(
     () => resolveAuth({}, { env: {}, envFile: {} }),

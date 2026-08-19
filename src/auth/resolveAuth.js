@@ -29,9 +29,19 @@ function readEnvFile() {
   return parseEnvFile(readFileSync(ENV_FILE_PATH, 'utf8'));
 }
 
+function isBlank(value) {
+  return value === undefined || value === null || value.trim() === '';
+}
+
+/**
+ * An empty/whitespace-only value (e.g. `CLOUDFLARE_API_TOKEN=` left over from
+ * copying `.env.example`) must be treated as unset at every precedence
+ * level — otherwise it would shadow a correctly-set value lower in the
+ * precedence chain instead of falling through to it.
+ */
 function resolveCredential(varName, overrideValue, envFile, env) {
-  const value = overrideValue ?? envFile[varName] ?? env[varName];
-  if (!value) throw new MissingCredentialError(varName);
+  const value = [overrideValue, envFile[varName], env[varName]].find((candidate) => !isBlank(candidate));
+  if (isBlank(value)) throw new MissingCredentialError(varName);
   return value;
 }
 
