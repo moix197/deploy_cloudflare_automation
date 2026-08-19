@@ -1,13 +1,15 @@
 import { checkAuth } from './commands/checkAuth.js';
+import { deployCommand } from './commands/deploy.js';
 import { CliError } from '../errors.js';
 
 const commands = {
   'check-auth': checkAuth,
+  deploy: deployCommand,
 };
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
-  return { command, json: rest.includes('--json') };
+  return { command, rest, json: rest.includes('--json') };
 }
 
 function printResult(result, json) {
@@ -29,7 +31,7 @@ function printError(error, json) {
 }
 
 export async function runCli(argv) {
-  const { command, json } = parseArgs(argv);
+  const { command, rest, json } = parseArgs(argv);
   const handler = commands[command];
   if (!handler) {
     printError(new CliError(`Unknown command: ${command ?? '(none)'}`, 'UNKNOWN_COMMAND'), json);
@@ -37,7 +39,7 @@ export async function runCli(argv) {
     return;
   }
   try {
-    printResult(await handler(), json);
+    printResult(await handler(rest), json);
   } catch (error) {
     printError(error, json);
     process.exitCode = 1;

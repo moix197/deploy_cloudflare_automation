@@ -61,6 +61,64 @@ that distinguishes "token set but Cloudflare rejected it" from "not
 configured at all". With valid credentials, it exits 0 and prints the
 account id and token status.
 
+### `deploy`
+
+Publishes an already-built static directory to Cloudflare Pages under an
+explicit slug. Creates the Pages project first if it doesn't exist yet (see
+[`.ai/decisions/no-auto-create-on-deploy.md`](.ai/decisions/no-auto-create-on-deploy.md)),
+uploads the directory via `wrangler pages deploy`, then reads the real live
+URL back from Cloudflare's API (see
+[`.ai/decisions/hostname-read-back-not-constructed.md`](.ai/decisions/hostname-read-back-not-constructed.md)).
+Re-running with the same `--slug` is idempotent — it does not error on
+"project already exists".
+
+```
+node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug>
+node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug> --json
+```
+
+`--json` output on success:
+
+```json
+{ "ok": true, "status": "deployed", "url": "https://<slug>.pages.dev", "slug": "<slug>" }
+```
+
+As a library:
+
+```js
+import { deploy } from 'cloudflare-pages-deploy';
+
+const { url, status } = await deploy({ dir: '/abs/path/to/site', slug: 'my-app' });
+```
+
+`deploy()` also accepts `onStart`/`onProgress`/`onDone`/`onError` hooks so a
+consumer can record status without polling.
+
+Slugs must be 1-58 characters, lowercase letters/digits/dashes only, and
+cannot start or end with a dash — this is validated locally before any
+network call. Note: whether `<slug>.pages.dev` uniqueness is scoped
+per-account or global is undocumented by Cloudflare; community reports
+(not confirmed fact) indicate it's global, since `.pages.dev` is a shared
+namespace. A taken slug fails outright with `SlugTakenError` — Cloudflare
+does not silently suffix it.
+
+Also note the confirmed **100 Pages projects per account** cap (all plans,
+"not routinely increased") and the **20,000 files / 25 MiB per file** limit
+on the free tier — a directory that exceeds either surfaces wrangler's own
+error message verbatim via `WranglerExecutionError`.
+
+#### Error codes
+
+| Error | Meaning |
+| --- | --- |
+| `INVALID_SLUG` | Slug fails the format rule above |
+| `DIRECTORY_NOT_FOUND` | `--dir` doesn't exist or isn't a directory |
+| `EMPTY_DIRECTORY` | `--dir` exists but has no files |
+| `SLUG_TAKEN` | Project name is taken by a different account — choose another slug |
+| `PROJECT_CREATE_ERROR` | Project creation failed for any other reason (e.g. the 100-project cap); carries Cloudflare's real code/message |
+| `WRANGLER_EXECUTION_ERROR` | `wrangler pages deploy` exited non-zero; carries its stderr verbatim |
+| `RATE_LIMIT` | Cloudflare rate-limited the upload (HTTP 429); not auto-retried — retry later |
+
 ## Development
 
 ```
