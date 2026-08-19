@@ -16,7 +16,9 @@ anywhere real.
 | `lib/ensureProject` | Idempotent get-or-create of a Pages project by slug; distinguishes a recoverable concurrent-create race from a genuinely taken slug | `src/lib/ensureProject.js` | [no-auto-create-on-deploy](decisions/no-auto-create-on-deploy.md) |
 | `lib/runWrangler` | Spawns the local `wrangler` binary for the upload step only; fixed `cwd`, no TTY, maps exit codes to typed errors | `src/lib/runWrangler.js` | [wrangler-scope-limited-to-upload](decisions/wrangler-scope-limited-to-upload.md) |
 | `lib/deploy` | Orchestrates validate → ensure-project → upload → URL readback; single `resolveAuth()` call shared by both REST and wrangler paths | `src/lib/deploy.js` | [no-auto-create-on-deploy](decisions/no-auto-create-on-deploy.md), [hostname-read-back-not-constructed](decisions/hostname-read-back-not-constructed.md) |
-| `index` (public API) | Barrel export of the library surface (`deploy`, extended in Phase 3) | `src/index.js` | |
+| `lib/listProjects` | Lists Pages projects for the account, mapped to `{name, subdomain, domains, productionBranch}` | `src/lib/listProjects.js` | |
+| `lib/deleteProject` | Deletes a Pages project by slug; maps a 404 to typed `ProjectNotFoundError` | `src/lib/deleteProject.js` | |
+| `index` (public API) | Barrel export of the library surface (`deploy`, `listProjects`, `deleteProject`) | `src/index.js` | |
 
 ## Cross-cutting
 

@@ -1,10 +1,14 @@
 import { checkAuth } from './commands/checkAuth.js';
 import { deployCommand } from './commands/deploy.js';
+import { listCommand } from './commands/list.js';
+import { deleteCommand } from './commands/delete.js';
 import { CliError } from '../errors.js';
 
 const commands = {
   'check-auth': checkAuth,
   deploy: deployCommand,
+  list: listCommand,
+  delete: deleteCommand,
 };
 
 function parseArgs(argv) {

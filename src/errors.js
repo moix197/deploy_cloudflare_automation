@@ -88,3 +88,10 @@ export class ProjectCreateError extends CliError {
     this.cause = cause;
   }
 }
+
+export class ProjectNotFoundError extends CliError {
+  constructor(slug) {
+    super(`Cloudflare Pages project "${slug}" was not found`, 'PROJECT_NOT_FOUND');
+    this.slug = slug;
+  }
+}

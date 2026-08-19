@@ -121,6 +121,69 @@ error message verbatim via `WranglerExecutionError`.
 | `MISSING_WRANGLER_ENTRYPOINT` | Resolved wrangler entrypoint (`bin/wrangler.js`) does not exist on disk at the resolved path |
 | `RATE_LIMIT` | Cloudflare rate-limited the upload (HTTP 429); not auto-retried — retry later |
 
+### `list`
+
+Lists every Pages project in the account, mapped to a stable shape
+(`{name, subdomain, domains, productionBranch}`) rather than Cloudflare's raw
+project object.
+
+```
+node bin/cloudflare-pages-deploy.js list
+node bin/cloudflare-pages-deploy.js list --json
+```
+
+`--json` output:
+
+```json
+{ "ok": true, "projects": [{ "name": "my-app", "subdomain": "my-app.pages.dev", "domains": ["my-app.pages.dev"], "productionBranch": "main" }], "count": 1 }
+```
+
+As a library:
+
+```js
+import { listProjects } from 'cloudflare-pages-deploy';
+
+const projects = await listProjects({ apiToken, accountId });
+```
+
+### `delete`
+
+Deletes a Pages project by slug. Exists because of the confirmed **100
+projects per account** cap — throwaway demo/test slugs should be deleted
+once they're no longer needed rather than left to accumulate toward it.
+
+```
+node bin/cloudflare-pages-deploy.js delete --slug <slug>
+node bin/cloudflare-pages-deploy.js delete --slug <slug> --json
+```
+
+`--json` output on success:
+
+```json
+{ "ok": true, "slug": "<slug>", "status": "deleted" }
+```
+
+Deleting a slug that doesn't exist (or was already deleted) fails cleanly
+with `PROJECT_NOT_FOUND` — not a crash:
+
+```json
+{ "ok": false, "code": "PROJECT_NOT_FOUND", "message": "Cloudflare Pages project \"<slug>\" was not found" }
+```
+
+As a library:
+
+```js
+import { deleteProject } from 'cloudflare-pages-deploy';
+
+await deleteProject({ slug: 'my-app', apiToken, accountId });
+```
+
+#### Error codes (list/delete)
+
+| Error | Meaning |
+| --- | --- |
+| `PROJECT_NOT_FOUND` | `delete` was called with a slug that doesn't exist in the account |
+
 ## Development
 
 ```
