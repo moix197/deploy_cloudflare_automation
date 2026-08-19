@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-18
 **Branch:** `cloudflare-pages-deploy`
-**Status:** not started
+**Status:** complete
 
 ## Context
 
@@ -250,9 +250,9 @@ Phase 2, so nothing here is throwaway scaffolding.
 - [x] Any changes made in response to code-reviewer suggestions reflected back into this plan file
 - [x] Tests for this phase written and passing
 - [x] Documentation updated (see Documentation section)
-- [ ] Orchestrator (user) has verified and approved this phase
+- [x] Orchestrator (user) has verified and approved this phase
 - [x] Changes committed: `feat: scaffold cloudflare-pages-deploy package with credential resolution and check-auth CLI`
-- [ ] Phase marked complete
+- [x] Phase marked complete
 
 ---
 
@@ -318,9 +318,9 @@ Phase 2, so nothing here is throwaway scaffolding.
 - [x] Any changes made in response to code-reviewer suggestions reflected back into this plan file
 - [x] Tests for this phase written and passing
 - [x] Documentation updated (see Documentation section)
-- [ ] Orchestrator (user) has verified and approved this phase
+- [x] Orchestrator (user) has verified and approved this phase
 - [x] Changes committed: `feat: add deploy command — create-if-missing project then direct upload to Cloudflare Pages`
-- [ ] Phase marked complete
+- [x] Phase marked complete
 
 ---
 
@@ -380,9 +380,9 @@ Phase 2, so nothing here is throwaway scaffolding.
 - [x] Any changes made in response to code-reviewer suggestions reflected back into this plan file
 - [x] Tests for this phase written and passing
 - [x] Documentation updated (see Documentation section)
-- [ ] Orchestrator (user) has verified and approved this phase
+- [x] Orchestrator (user) has verified and approved this phase
 - [x] Changes committed: `feat: add listProjects and deleteProject operations`
-- [ ] Phase marked complete
+- [x] Phase marked complete
 
 ---
 
@@ -407,18 +407,18 @@ Phase 2, so nothing here is throwaway scaffolding.
 
 **Steps:**
 
-- [ ] Every preceding phase's Steps/Verification/Phase review checkboxes are ticked in the plan file
+- [x] Every preceding phase's Steps/Verification/Phase review checkboxes are ticked in the plan file
 - [x] ~~Reviewer handoff prompt emitted in a fenced code block~~ (n/a — superseded by `/execute-prd` subagent dispatch)
 - [x] ~~Orchestrator cleared context (`/clear`) and pasted the handoff prompt~~ (n/a — same reason)
 - [x] Code-reviewer agent reviews the entire change end-to-end
 - [x] Any changes made in response to the final code-reviewer review reflected back into this plan file
 - [x] All tests pass: `pnpm test`
 - [x] No CLAUDE.md invariants violated (thin entry points, ~30-line functions, modular boundaries, no speculative abstractions, `.ai/` synced)
-- [ ] Feature tested manually end-to-end: fresh `check-auth` → `deploy` a real directory → `curl` the returned URL → `list` shows it → `delete` it → `list` no longer shows it
-- [ ] Confirm `SlugTakenError` behaves as designed: attempt to create a project with a deliberately colliding name (e.g. `test`, likely already taken globally) and confirm the package surfaces a clear "choose a different slug" error rather than silently continuing or misreporting the URL
+- [x] Feature tested manually end-to-end: fresh `check-auth` → `deploy` a real directory → `curl` the returned URL → `list` shows it → `delete` it → `list` no longer shows it
+- [x] ~~Confirm `SlugTakenError` behaves as designed against a live colliding name~~ — **skipped by orchestrator decision (2026-08-19): verified by unit test only** (`ensureProject.test.js` covers Cloudflare error `8000003` → `SlugTakenError`). Not exercised against the live API.
 - [x] Confirm no `.env` or token value was committed (`git log -p -- .env` empty, `git grep` for the raw token value returns nothing)
-- [ ] Overall success criteria met
-- [ ] All phase checkboxes above are ticked
+- [x] Overall success criteria met
+- [x] All phase checkboxes above are ticked
 
 ## Documentation
 
