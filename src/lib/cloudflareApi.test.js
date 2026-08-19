@@ -1,7 +1,13 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cloudflareFetch, verifyToken, CloudflareApiError, CloudflareHttpError } from './cloudflareApi.js';
+import {
+  cloudflareFetch,
+  verifyToken,
+  CloudflareApiError,
+  CloudflareHttpError,
+  CloudflareResponseParseError,
+} from './cloudflareApi.js';
 
 let originalFetch;
 
@@ -68,6 +74,35 @@ test('cloudflareFetch attaches the parsed errors array and Cloudflare error code
       error.status === 404 &&
       error.cloudflareErrorCode === 8000003 &&
       error.errors[0].message === 'slug already exists',
+  );
+});
+
+test('CloudflareApiError exposes the same .errors/.cloudflareErrorCode shape as CloudflareHttpError', async () => {
+  mockFetchOnce({
+    body: { success: false, errors: [{ code: 8000003, message: 'slug already exists' }], result: null },
+  });
+  await assert.rejects(
+    () => cloudflareFetch('/accounts/acc/pages/projects/my-app', { apiToken: 'token' }),
+    (error) =>
+      error instanceof CloudflareApiError &&
+      Array.isArray(error.errors) &&
+      error.cloudflareErrorCode === 8000003 &&
+      error.errors[0].message === 'slug already exists',
+  );
+});
+
+test('cloudflareFetch throws CloudflareResponseParseError, not CloudflareApiError, on an unparseable 2xx body', async () => {
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: async () => {
+      throw new SyntaxError('Unexpected end of JSON input');
+    },
+  });
+  await assert.rejects(
+    () => cloudflareFetch('/user/tokens/verify', { apiToken: 'token' }),
+    (error) => error instanceof CloudflareResponseParseError && !(error instanceof CloudflareApiError),
   );
 });
 
