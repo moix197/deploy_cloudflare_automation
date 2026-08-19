@@ -29,7 +29,7 @@ async function readProjectSubdomain({ slug, apiToken, accountId }) {
  * `{apiToken, accountId}` reaches both `ensureProject` and `runWrangler`, so
  * there is a single credential-resolution path. A `RateLimitError` from the
  * upload propagates straight to the caller; there is no auto-retry (see
- * Dependencies & Risks in the plan). `ensureProjectFn`/`runWranglerFn`/
+ * .ai/decisions/no-retry-on-rate-limit.md). `ensureProjectFn`/`runWranglerFn`/
  * `readProjectSubdomainFn`/`resolveAuthFn` are injectable for tests.
  */
 export async function deploy({

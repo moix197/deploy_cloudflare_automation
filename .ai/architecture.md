@@ -17,8 +17,14 @@ Internal layout, by responsibility:
 - `bin/` — executable shim only, no logic.
 - `src/cli/` — argument parsing and command dispatch. Thin by design: each
   command file parses its own flags, calls exactly one `src/lib/*` operation,
-  and shapes the result for printing. No business logic lives here. Credential
-  resolution and direct Cloudflare API calls are also out of scope here,
+  and returns a plain object that `cli.js` prints — as `key: value` lines, or
+  as `{ok: true, ...result}` JSON under `--json`. `src/cli/commands/list.js`
+  is the exception: an array of projects renders as `[object Object]` through
+  that generic printer, so on the human path it prints its own table and
+  returns `{}`, leaving `printResult` nothing to add (the `--json` path still
+  returns `{projects, count}` and prints through `cli.js` unchanged). No
+  business logic lives here. Credential resolution and direct Cloudflare API
+  calls are also out of scope here,
   except for `checkAuthCommand` (`src/cli/commands/checkAuth.js`), which has
   no corresponding `src/lib/` operation to delegate to and so calls
   `resolveAuth()` and `src/lib/cloudflareApi.js` directly — see the
@@ -29,7 +35,11 @@ Internal layout, by responsibility:
   library surface, barrelled through `src/index.js`.
 - `src/auth/` — credential resolution (`resolveAuth`), consumed by `src/lib/*`
   directly. The one exception is `src/cli/commands/checkAuth.js`, which calls
-  `resolveAuth()` itself — see the Dependency direction section below.
+  `resolveAuth()` itself — see the Dependency direction section below. The
+  `.env` it reads is the *package's own*, resolved from `import.meta.url` and
+  never from the caller's cwd — see
+  [env-resolved-from-package-root](decisions/env-resolved-from-package-root.md)
+  for the security trade-off that implies.
 - `src/errors.js` — single home for every typed error the package throws,
   including the Cloudflare-REST-specific ones (`CloudflareHttpError`,
   `CloudflareApiError`, `CloudflareResponseParseError`); `cloudflareApi.js`
@@ -91,6 +101,41 @@ output shape (`{name, subdomain, domains, productionBranch}[]` /
 
 No local state is ever persisted — every result, including the final URL, is
 read straight back from Cloudflare on each call.
+
+## Operating constraints
+
+External limits that shape the design, not incidental trivia:
+
+- **`.pages.dev` names are a global namespace.** Cloudflare documents nothing
+  about the scope of project-name uniqueness; community reports
+  (workers-sdk#3527) say it is global, not per-account. So the likeliest
+  real-world failure of `deploy()` is not a bug here — it is a slug colliding
+  with a project in a completely unrelated account.
+- **A taken name fails outright, and is never auto-suffixed.** Creation
+  returns Cloudflare error `8000003`; the "we picked `my-app-abc` for you"
+  behaviour is dashboard-UX-only and does not exist at the API level. That is
+  what makes `SlugTakenError` a terminal "choose another slug", and what lets
+  the URL readback be a confirmation rather than a collision recovery.
+- **100 Pages projects per account, on every plan**, and Cloudflare states
+  the cap is "not routinely increased." Since this package exists to publish
+  throwaway demo sites, they accumulate against that cap — which is why
+  `deleteProject` shipped in v1 rather than being deferred: reaping is part
+  of normal operation, not a maintenance extra.
+
+## Known gaps
+
+Deliberately-accepted holes, recorded so they are not rediscovered as bugs:
+
+- **`SlugTakenError` has never been exercised against the live API.** It is
+  covered by unit test only (`ensureProject.test.js`, Cloudflare error
+  `8000003` → `SlugTakenError`); verifying it for real would mean colliding
+  with a stranger's live project name. Accepted at plan closeout.
+- **`deploy()` cannot take explicit credentials, `listProjects()`/
+  `deleteProject()` can.** The asymmetry described under Dependency direction
+  is a decision, not an oversight: nothing needs per-call credentials on the
+  deploy path, and adding the parameters purely for symmetry would widen the
+  surface through which a token can be passed around. Left as-is until a real
+  caller needs it.
 
 > Update via the `sync-knowledge` skill when an architectural boundary, package,
 > or flow is introduced or changed.

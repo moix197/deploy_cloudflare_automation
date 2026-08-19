@@ -11,10 +11,9 @@ has to be a dependency for that one operation.
 ## Decision
 
 `wrangler` is used for **exactly one thing**: the actual file upload
-(`wrangler pages deploy`, added in Phase 2). Token verification (Phase 1),
-project existence checks, project creation, listing, and deletion (Phase 2/3)
-all go through the plain documented Cloudflare REST API via Node's built-in
-`fetch` — `src/lib/cloudflareApi.js`.
+(`wrangler pages deploy`). Token verification, project existence checks,
+project creation, listing, and deletion all go through the plain documented
+Cloudflare REST API via Node's built-in `fetch` — `src/lib/cloudflareApi.js`.
 
 ## Rejected alternative
 
@@ -31,7 +30,7 @@ Rejected because:
   REST project GET/POST response has it. Relying on wrangler for listing
   would still require a REST call for the URL, so it doesn't reduce surface
   area.
-- Keeping wrangler's footprint to one call site (`runWrangler`, Phase 2)
+- Keeping wrangler's footprint to one call site (`src/lib/runWrangler.js`)
   means everything else is unit-testable with a mocked `fetch`, consistent
   with this project's testability-first priority (see CLAUDE.md).
 
@@ -39,4 +38,6 @@ Rejected because:
 
 `wrangler` remains the one exception to CLAUDE.md's "build our own before
 installing" rule, and only for the upload step. Every other Cloudflare
-interaction in this package is a plain `cloudflareFetch` call.
+interaction in this package is a plain `cloudflareFetch` call. How that one
+call site actually invokes wrangler is its own decision — see
+[`spawn-wrangler-js-entrypoint-no-shell.md`](spawn-wrangler-js-entrypoint-no-shell.md).
