@@ -226,6 +226,12 @@ factory-cli `migrations/d1/0008_demo_shards.sql`):
 | `demo_files(shard, path, hash)` | each shard's current Pages manifest, so a deploy never needs other demos' files |
 | `shard_locks(shard, holder, expires_at)` | a ~2 min lease per shard serializing manifest read → deploy → write |
 
+Sharded commands (`deploy/delete --sharded`, `shards init`) resolve credentials
+as explicit args > `DEMOS_CLOUDFLARE_API_TOKEN` / `DEMOS_CLOUDFLARE_ACCOUNT_ID`
+in process.env > the usual `resolveAuth` chain. This lets a caller (factory-cli)
+supply its own token without touching this package's shared `.env`. The default
+mode never reads `DEMOS_CLOUDFLARE_*`.
+
 Extra configuration: `DEMOS_D1_DATABASE_ID` (package `.env`/env, or
 `--d1-database <id>`), and the token needs **D1 Edit** on top of Pages Edit.
 

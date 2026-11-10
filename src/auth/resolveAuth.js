@@ -57,6 +57,21 @@ export function resolveAuth(overrides = {}, { env = process.env, envFile = readE
 }
 
 /**
+ * Sharded-mode credentials: `DEMOS_CLOUDFLARE_API_TOKEN` /
+ * `DEMOS_CLOUDFLARE_ACCOUNT_ID` in process.env win over the package `.env`
+ * (which is shared with another project and must not change), but explicit
+ * args still win over them. Falls back to `resolveAuth` per credential.
+ * Only sharded code paths use this; the default mode is untouched.
+ */
+export function resolveShardedAuth(overrides = {}, { env = process.env, envFile = readEnvFile() } = {}) {
+  const demosOverrides = {
+    apiToken: [overrides.apiToken, env.DEMOS_CLOUDFLARE_API_TOKEN].find((value) => !isBlank(value)),
+    accountId: [overrides.accountId, env.DEMOS_CLOUDFLARE_ACCOUNT_ID].find((value) => !isBlank(value)),
+  };
+  return resolveAuth(demosOverrides, { env, envFile });
+}
+
+/**
  * Resolves the D1 database holding the sharded-hosting tables
  * (`demo_placements`, `demo_files`, `shard_locks`; schema owned by
  * factory-cli's migrations) with the same precedence as the credentials:

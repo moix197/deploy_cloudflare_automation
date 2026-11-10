@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveAuth } from './resolveAuth.js';
+import { resolveAuth, resolveShardedAuth } from './resolveAuth.js';
 import { MissingCredentialError } from '../errors.js';
 
 test('explicit args take precedence over .env and process.env', () => {
@@ -57,4 +57,22 @@ test('throws MissingCredentialError naming CLOUDFLARE_ACCOUNT_ID when it is miss
     () => resolveAuth({ apiToken: 'token' }, { env: {}, envFile: {} }),
     (error) => error instanceof MissingCredentialError && error.varName === 'CLOUDFLARE_ACCOUNT_ID',
   );
+});
+
+test('resolveShardedAuth: DEMOS_* process.env beats the package .env and CLOUDFLARE_* env', () => {
+  const result = resolveShardedAuth(
+    {},
+    {
+      env: { DEMOS_CLOUDFLARE_API_TOKEN: 'demos-token', DEMOS_CLOUDFLARE_ACCOUNT_ID: 'demos-account', CLOUDFLARE_API_TOKEN: 'env-token' },
+      envFile: { CLOUDFLARE_API_TOKEN: 'file-token', CLOUDFLARE_ACCOUNT_ID: 'file-account' },
+    },
+  );
+  assert.deepEqual(result, { apiToken: 'demos-token', accountId: 'demos-account' });
+});
+
+test('resolveShardedAuth: explicit args beat DEMOS_*; blank DEMOS_* falls back to resolveAuth', () => {
+  const env = { DEMOS_CLOUDFLARE_API_TOKEN: 'demos-token', DEMOS_CLOUDFLARE_ACCOUNT_ID: '  ' };
+  const envFile = { CLOUDFLARE_API_TOKEN: 'file-token', CLOUDFLARE_ACCOUNT_ID: 'file-account' };
+  assert.deepEqual(resolveShardedAuth({ apiToken: 'arg-token' }, { env, envFile }), { apiToken: 'arg-token', accountId: 'file-account' });
+  assert.deepEqual(resolveShardedAuth({}, { env: {}, envFile }), { apiToken: 'file-token', accountId: 'file-account' });
 });
