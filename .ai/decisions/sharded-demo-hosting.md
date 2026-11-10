@@ -21,8 +21,8 @@ Opt-in `--sharded` mode (default mode untouched):
   shard with the fewest files under an 18,000 budget (Pages hard limit 20,000,
   headroom for growth on redeploy).
 - Concurrency: a D1 lease per shard (`shard_locks`, atomic upsert-if-expired,
-  ~2 min, renewed right before creating the deployment, waited for up to ~5
-  min with backoff). The final D1 write embeds the lease as an `EXISTS`
+  5 min, renewed before the upsert and before and after creating the deployment,
+  waited for up to ~5 min with backoff). The final D1 write embeds the lease as an `EXISTS`
   guard in every statement and re-reads the holder in the same transaction,
   so a writer that lost its lease records nothing (`SHARD_LOCK_LOST`).
 - Upload uses the Pages direct-upload REST flow wrangler uses internally
@@ -46,6 +46,7 @@ Opt-in `--sharded` mode (default mode untouched):
   manifest row lost from D1 means that file disappears on the next deploy of
   any demo on that shard.
 - The Worker trusts `demo_placements.shard` only if it matches `wx-demos-NN`.
+- The Worker passes requests through when the D1 lookup throws (not cached) and serves `/<slug>/404.html` with status 404 for a shard 404 when it exists.
 - Assets' content type comes from a curated subset of mime@3
   (`src/lib/sharded/contentType.js`); unlisted extensions upload as
   `application/octet-stream`.

@@ -8,7 +8,7 @@ import { validateDir, validateSlug } from '../validate.js';
 import { walkAssets } from './assets.js';
 import { createD1Executor } from './d1.js';
 import { mergeSlugManifest, toSlugManifest, withoutSlug } from './manifest.js';
-import { createDeployment, uploadMissingAssets } from './pagesDirectUpload.js';
+import { createDeployment, uploadMissingAssets, upsertManifestHashes } from './pagesDirectUpload.js';
 import {
   commitUnderLease,
   getPlacement,
@@ -53,9 +53,18 @@ function assertWithinPagesLimit(shard, manifest) {
   if (files > PAGES_FILE_LIMIT) throw new ShardFileLimitError(shard, files, PAGES_FILE_LIMIT);
 }
 
+/**
+ * Renews before and after the slow Cloudflare calls (the lease is longer than
+ * either); losing it throws, so nothing is committed to D1.
+ */
 async function publishManifest(ctx, lease, manifest) {
+  const cloudflare = { shard: lease.shard, manifest, apiToken: ctx.apiToken, accountId: ctx.accountId, cloudflareFetchFn: ctx.cloudflareFetchFn };
   await lease.renew();
-  return createDeployment({ shard: lease.shard, manifest, apiToken: ctx.apiToken, accountId: ctx.accountId, cloudflareFetchFn: ctx.cloudflareFetchFn });
+  await upsertManifestHashes(cloudflare);
+  await lease.renew();
+  const deployment = await createDeployment(cloudflare);
+  await lease.renew();
+  return deployment;
 }
 
 async function publishSlug(ctx, lease, { slug, leadId, slugManifest }) {

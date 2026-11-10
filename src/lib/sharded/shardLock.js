@@ -3,7 +3,7 @@ import { hostname } from 'node:os';
 
 import { ShardLockLostError, ShardLockTimeoutError } from '../../errors.js';
 
-export const LOCK_LEASE_MS = 2 * 60_000;
+export const LOCK_LEASE_MS = 5 * 60_000;
 export const LOCK_WAIT_MS = 5 * 60_000;
 const FIRST_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 15_000;

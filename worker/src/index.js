@@ -19,8 +19,25 @@ async function lookupShard({ slug, env, ctx, cache }) {
   return shard;
 }
 
+function fetchUpstream(request, upstream, fetchFn, redirect = 'manual') {
+  return fetchFn(new Request(upstream, { method: request.method, headers: request.headers, redirect }));
+}
+
+/**
+ * Pages serves its own 404 for unknown paths; a demo's `/<slug>/404.html` replaces it when present.
+ * Follows redirects because Pages rewrites `/404.html` to `/404`.
+ */
+async function customNotFound(request, { shard, slug, url, fetchFn }) {
+  const page = await fetchUpstream(request, upstreamUrl(shard, slug, new URL('/404.html', url)), fetchFn, 'follow');
+  return page.status === 200 ? new Response(page.body, { status: 404, headers: page.headers }) : null;
+}
+
 async function proxyToShard(request, { shard, slug, url, fetchFn }) {
-  const upstream = await fetchFn(new Request(upstreamUrl(shard, slug, url), { method: request.method, headers: request.headers, redirect: 'manual' }));
+  const upstream = await fetchUpstream(request, upstreamUrl(shard, slug, url), fetchFn);
+  if (upstream.status === 404) {
+    const notFound = await customNotFound(request, { shard, slug, url, fetchFn });
+    if (notFound) return notFound;
+  }
   const response = new Response(upstream.body, upstream);
   const location = response.headers.get('Location');
   if (location) response.headers.set('Location', publicLocation(location, { shard, slug, publicOrigin: url.origin }));
@@ -35,7 +52,7 @@ async function proxyToShard(request, { shard, slug, url, fetchFn }) {
 export async function handleRequest(request, env, ctx, { fetchFn = fetch, cache = caches.default } = {}) {
   const url = new URL(request.url);
   const slug = demoSlugFromHost(url.hostname, env.DEMO_BASE_DOMAIN);
-  const shard = slug ? await lookupShard({ slug, env, ctx, cache }) : null;
+  const shard = slug ? await lookupShard({ slug, env, ctx, cache }).catch(() => null) : null;
   if (!shard) return fetchFn(request);
   if (!PROXIED_METHODS.has(request.method)) {
     return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });

@@ -135,3 +135,35 @@ test('non-GET/HEAD requests to a demo get 405 and never reach the shard', async 
   assert.equal(response.headers.get('Allow'), 'GET, HEAD');
   assert.equal(calls.length, 0);
 });
+
+test('a D1 lookup failure passes the request through and is not cached', async () => {
+  const { env } = fakeEnv({});
+  env.DB = { prepare: () => ({ bind: () => ({ first: async () => { throw new Error('d1 down'); } }) }) };
+  const cache = fakeCache();
+  const ctx = fakeCtx();
+  const { calls, fetchFn } = recordingFetch();
+  const request = new Request('https://demo.web-express.com.ar/');
+  await handleRequest(request, env, ctx, { fetchFn, cache });
+  assert.equal(calls[0], request);
+  assert.equal(ctx.pending.length, 0);
+  assert.equal(cache.entries.size, 0);
+});
+
+test('a shard 404 is replaced by the demo 404.html (status stays 404) when it exists', async () => {
+  const { env } = fakeEnv({ demo: 'wx-demos-03' });
+  const { calls, fetchFn } = recordingFetch((request) =>
+    request.url.endsWith('/demo/404.html') ? new Response('custom', { status: 200, headers: { 'Content-Type': 'text/html' } }) : new Response('pages 404', { status: 404 }));
+  const response = await handleRequest(new Request('https://demo.web-express.com.ar/nope'), env, fakeCtx(), { fetchFn, cache: fakeCache() });
+  assert.equal(response.status, 404);
+  assert.equal(await response.text(), 'custom');
+  assert.equal(response.headers.get('Content-Type'), 'text/html');
+  assert.deepEqual(calls.map((r) => r.url), ['https://wx-demos-03.pages.dev/demo/nope', 'https://wx-demos-03.pages.dev/demo/404.html']);
+});
+
+test('a shard 404 stays as is when the demo has no 404.html', async () => {
+  const { env } = fakeEnv({ demo: 'wx-demos-03' });
+  const { fetchFn } = recordingFetch(() => new Response('pages 404', { status: 404 }));
+  const response = await handleRequest(new Request('https://demo.web-express.com.ar/nope'), env, fakeCtx(), { fetchFn, cache: fakeCache() });
+  assert.equal(response.status, 404);
+  assert.equal(await response.text(), 'pages 404');
+});

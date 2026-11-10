@@ -22,6 +22,7 @@ function fakePages() {
   const stored = new Map();
   const deployments = [];
   const uploads = [];
+  const upserts = [];
   const hashesOf = (shard) => stored.get(shard) ?? stored.set(shard, new Set()).get(shard);
   let tokenShard;
   const cloudflareFetchFn = async (path, { method = 'GET', body } = {}) => {
@@ -36,7 +37,10 @@ function fakePages() {
       uploads.push(...body.map((file) => file.key));
       return true;
     }
-    if (path === '/pages/assets/upsert-hashes') return true;
+    if (path === '/pages/assets/upsert-hashes') {
+      upserts.push(body.hashes);
+      return true;
+    }
     const deployment = path.match(/^\/accounts\/acc\/pages\/projects\/([^/]+)\/deployments$/);
     if (deployment && method === 'POST') {
       deployments.push({ shard: deployment[1], branch: body.get('branch'), manifest: JSON.parse(body.get('manifest')) });
@@ -44,7 +48,7 @@ function fakePages() {
     }
     throw new Error(`unexpected ${method} ${path}`);
   };
-  return { cloudflareFetchFn, deployments, uploads };
+  return { cloudflareFetchFn, deployments, uploads, upserts };
 }
 
 function makeSite(files) {
@@ -170,3 +174,31 @@ test('isJwtExpired reads exp; garbage counts as expired', () => {
   assert.equal(isJwtExpired(jwt(100), 100_000), true);
   assert.equal(isJwtExpired('not-a-jwt'), true);
 });
+
+test('the deployment upserts every hash of the merged manifest, other demos included', () =>
+  withSites({ a: { 'index.html': 'A' }, b: { 'index.html': 'B' } }, async ({ a, b }) => {
+    const db = createSqliteD1();
+    const pages = fakePages();
+    const base = { db, resolveAuthFn, cloudflareFetchFn: pages.cloudflareFetchFn };
+    await deploySharded({ dir: a, slug: 'alpha', ...base });
+    await db.query("INSERT INTO demo_placements VALUES ('beta', 'wx-demos-01', NULL, 1, 'x')");
+    await deploySharded({ dir: b, slug: 'beta', ...base });
+    const merged = Object.values(pages.deployments.at(-1).manifest);
+    assert.equal(merged.length, 2);
+    assert.deepEqual([...pages.upserts.at(-1)].sort(), [...merged].sort());
+  }));
+
+test('the lease is renewed after createDeployment too, and a lease lost during it aborts before D1', () =>
+  withSites({ a: { 'index.html': 'A' } }, async ({ a }) => {
+    const db = createSqliteD1();
+    const pages = fakePages();
+    let now = 0;
+    const lockOptions = { now: () => now, leaseMs: 1000 };
+    const cloudflareFetchFn = async (path, init) => {
+      const result = await pages.cloudflareFetchFn(path, init);
+      if (path.endsWith('/deployments')) await db.query("UPDATE shard_locks SET holder = 'thief'");
+      return result;
+    };
+    await assert.rejects(deploySharded({ dir: a, slug: 'alpha', db, resolveAuthFn, cloudflareFetchFn, lockOptions }), ShardLockLostError);
+    assert.deepEqual(await db.query('SELECT * FROM demo_placements'), []);
+  }));

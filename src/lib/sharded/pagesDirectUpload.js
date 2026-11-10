@@ -6,6 +6,7 @@ import { cloudflareFetch, CloudflareHttpError } from '../cloudflareApi.js';
 const MAX_BUCKET_BYTES = 40 * 1024 * 1024;
 const MAX_BUCKET_FILES = 1000;
 const UPLOAD_CONCURRENCY = 3;
+const UPSERT_BATCH_SIZE = 1000;
 const MAX_ATTEMPTS = 3;
 const JWT_UNAUTHORIZED_CODE = 8000013;
 
@@ -126,6 +127,26 @@ export async function uploadMissingAssets({
   );
   await post('/pages/assets/upsert-hashes', { hashes });
   return { uploaded: toUpload.length, total: unique.length };
+}
+
+/**
+ * Re-registers every hash of a deployment's manifest, as wrangler does for the
+ * full deployment, so Pages does not age out assets of the shard's other demos.
+ */
+export async function upsertManifestHashes({
+  shard,
+  manifest,
+  apiToken,
+  accountId,
+  cloudflareFetchFn = cloudflareFetch,
+  sleep = sleepMs,
+}) {
+  const jwtSource = createJwtSource({ shard, apiToken, accountId, cloudflareFetchFn });
+  const hashes = [...new Set(Object.values(manifest))];
+  for (let i = 0; i < hashes.length; i += UPSERT_BATCH_SIZE) {
+    const batch = hashes.slice(i, i + UPSERT_BATCH_SIZE);
+    await callWithJwt(jwtSource, (jwt) => cloudflareFetchFn('/pages/assets/upsert-hashes', { apiToken: jwt, method: 'POST', body: { hashes: batch } }), sleep);
+  }
 }
 
 /** Publishes `manifest` as the shard's new production deployment. */

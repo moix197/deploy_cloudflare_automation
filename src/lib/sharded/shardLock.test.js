@@ -6,7 +6,7 @@ import { releaseLease, renewLease, retryDelayMs, tryAcquireLease, withShardLock 
 import { createSqliteD1 } from './sqliteD1.testkit.js';
 
 const shard = 'wx-demos-01';
-const LEASE = 120_000;
+const LEASE = 5 * 60_000;
 
 test('a free shard is acquired; a held one is refused until its lease expires', async () => {
   const db = createSqliteD1();
