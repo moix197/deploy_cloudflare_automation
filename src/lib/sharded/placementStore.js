@@ -60,20 +60,31 @@ function upsertPlacement({ shard, slug, leadId, fileCount, updatedAt }, guard) {
   };
 }
 
-/** Statements replacing the slug's manifest rows and placement; every one is a no-op unless the lease is still ours. */
-export function slugWriteStatements({ lease, slug, leadId, slugManifest, updatedAt }) {
+// The Worker proxies to this immutable deployment URL: the <shard>.pages.dev alias can keep serving a superseded deployment from cache.
+function upsertShardDeployment({ shard, deploymentUrl, updatedAt }, guard) {
+  return {
+    sql: `INSERT INTO shard_deployments (shard, url, updated_at) SELECT ?, ?, ? WHERE ${guard.sql}
+      ON CONFLICT(shard) DO UPDATE SET url = excluded.url, updated_at = excluded.updated_at`,
+    params: [shard, deploymentUrl, updatedAt, ...guard.params],
+  };
+}
+
+/** Statements replacing the slug's manifest rows, placement and the shard's deployment URL; every one is a no-op unless the lease is still ours. */
+export function slugWriteStatements({ lease, slug, leadId, slugManifest, deploymentUrl, updatedAt }) {
   const entries = Object.entries(slugManifest);
   return [
     deleteSlugFiles(lease.shard, slug, lease.guard),
     ...chunk(entries, ROWS_PER_INSERT).map((rows) => insertFiles(lease.shard, rows, lease.guard)),
     upsertPlacement({ shard: lease.shard, slug, leadId, fileCount: entries.length, updatedAt }, lease.guard),
+    upsertShardDeployment({ shard: lease.shard, deploymentUrl, updatedAt }, lease.guard),
   ];
 }
 
-export function slugRemoveStatements({ lease, slug }) {
+export function slugRemoveStatements({ lease, slug, deploymentUrl, updatedAt }) {
   return [
     deleteSlugFiles(lease.shard, slug, lease.guard),
     { sql: `DELETE FROM demo_placements WHERE slug = ? AND ${lease.guard.sql}`, params: [slug, ...lease.guard.params] },
+    upsertShardDeployment({ shard: lease.shard, deploymentUrl, updatedAt }, lease.guard),
   ];
 }
 

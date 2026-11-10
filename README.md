@@ -218,13 +218,14 @@ projects** (`wx-demos-01` … `wx-demos-10`): each demo is published under
 The default mode is unchanged; sharded mode is opt-in per call.
 
 State lives in factory-cli's D1 database (schema:
-factory-cli `migrations/d1/0008_demo_shards.sql`):
+factory-cli `migrations/d1/0008_demo_shards.sql` and `0009_shard_deployments.sql`):
 
 | Table | Holds |
 | --- | --- |
 | `demo_placements(slug, shard, lead_id, file_count, updated_at)` | which shard serves each slug (the Worker reads this) |
 | `demo_files(shard, path, hash)` | each shard's current Pages manifest, so a deploy never needs other demos' files |
-| `shard_locks(shard, holder, expires_at)` | a ~2 min lease per shard serializing manifest read → deploy → write |
+| `shard_locks(shard, holder, expires_at)` | a 5 min lease per shard serializing manifest read → deploy → write |
+| `shard_deployments(shard, url, updated_at)` | each shard's latest deployment URL (`https://<id8>.<shard>.pages.dev`), which the Worker proxies to |
 
 Credentials resolve as explicit args > `DEPLOYER_CLOUDFLARE_API_TOKEN` /
 `DEPLOYER_CLOUDFLARE_ACCOUNT_ID` in process.env > package `.env` >
@@ -252,7 +253,8 @@ node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug> --sharded 
 ```
 
 ```json
-{ "ok": true, "status": "deployed", "url": "https://wx-demos-03.pages.dev/<slug>/", "slug": "<slug>", "shard": "wx-demos-03", "files": 412, "uploaded": 37 }
+{ "ok": true, "status": "deployed", "url": "https://wx-demos-03.pages.dev/<slug>/", "slug": "<slug>", "shard": "wx-demos-03", "files": 412, "uploaded": 37,
+  "lock": { "requestedAt": "…", "acquiredAt": "…", "releasedAt": "…" } }
 ```
 
 `url` is the raw shard path (assets referenced from `/` only resolve through
@@ -265,8 +267,11 @@ any shard that would pass 18,000 files) → Pages direct upload of this slug
 only (upload JWT → check-missing → upload missing → upsert-hashes) → take
 the shard lease (retried with backoff up to ~5 min) → merge the stored shard
 manifest (this slug's `/<slug>/…` entries replaced, stale ones dropped) →
-create the deployment from it → write manifest rows + placement in one D1
-transaction guarded by the lease → release.
+create the deployment from it → wait (≤60 s) until the new deployment URL
+serves → write manifest rows + placement + the shard's deployment URL in one
+D1 transaction guarded by the lease → release. `lock` timestamps show when
+the lease was requested, acquired and released (a concurrent deploy to the
+same shard acquires only after the other released).
 
 ### `delete --sharded`
 
@@ -293,9 +298,11 @@ and placement. Unknown slug → `PLACEMENT_NOT_FOUND`.
 ### Routing Worker (`worker/`)
 
 `worker/wrangler.toml` routes `*.web-express.com.ar/*` to `worker/src/index.js`,
-which maps `<slug>` → shard through the `DB` D1 binding (cached ~5 min,
+which maps `<slug>` → the shard's latest deployment URL through the `DB` D1 binding (cached ~15 s,
 unknown slugs ~1 min, via the Cache API) and proxies GET/HEAD to
-`https://<shard>.pages.dev/<slug><path>?<query>`, rewriting Pages' own
+`https://<id8>.<shard>.pages.dev/<slug><path>?<query>` (the `<shard>.pages.dev`
+alias only when D1 has no valid deployment URL: the alias can keep serving a
+superseded deployment from Pages' edge cache, `s-maxage=604800`), rewriting Pages' own
 redirects back to public paths. Any host that is not a placed demo is passed
 through with `fetch(request)`; other methods on a demo get 405.
 

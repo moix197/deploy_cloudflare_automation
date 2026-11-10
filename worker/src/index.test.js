@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handleRequest } from './index.js';
-import { demoSlugFromHost, publicLocation, upstreamUrl } from './routing.js';
+import { demoSlugFromHost, publicLocation, upstreamOrigin, upstreamUrl } from './routing.js';
 
 const BASE = 'web-express.com.ar';
+const DEPLOYMENT = 'https://0123abcd.wx-demos-03.pages.dev';
 
 test('demoSlugFromHost accepts one valid label under the base domain only', () => {
   assert.equal(demoSlugFromHost('bellevue.web-express.com.ar', BASE), 'bellevue');
@@ -20,20 +21,29 @@ test('demoSlugFromHost accepts one valid label under the base domain only', () =
 
 test('upstreamUrl keeps path and query under /<slug>', () => {
   const url = new URL('https://demo.web-express.com.ar/about/?x=1&y=2');
-  assert.equal(upstreamUrl('wx-demos-03', 'demo', url), 'https://wx-demos-03.pages.dev/demo/about/?x=1&y=2');
-  assert.equal(upstreamUrl('wx-demos-03', 'demo', new URL('https://demo.web-express.com.ar/')), 'https://wx-demos-03.pages.dev/demo/');
+  assert.equal(upstreamUrl(DEPLOYMENT, 'demo', url), `${DEPLOYMENT}/demo/about/?x=1&y=2`);
+  assert.equal(upstreamUrl(DEPLOYMENT, 'demo', new URL('https://demo.web-express.com.ar/')), `${DEPLOYMENT}/demo/`);
+});
+
+test('upstreamOrigin trusts only a deployment URL of that same shard, else the alias', () => {
+  assert.equal(upstreamOrigin('wx-demos-03', DEPLOYMENT), DEPLOYMENT);
+  assert.equal(upstreamOrigin('wx-demos-03', null), 'https://wx-demos-03.pages.dev');
+  assert.equal(upstreamOrigin('wx-demos-03', 'https://0123abcd.wx-demos-04.pages.dev'), 'https://wx-demos-03.pages.dev');
+  assert.equal(upstreamOrigin('wx-demos-03', 'https://0123abcd.wx-demos-03.pages.dev.evil.com'), 'https://wx-demos-03.pages.dev');
+  assert.equal(upstreamOrigin('wx-demos-03', 'https://0123abcd.wx-demos-03.pages.dev/x'), 'https://wx-demos-03.pages.dev');
 });
 
 test('publicLocation strips the /<slug> prefix from shard redirects only', () => {
-  const ctx = { shard: 'wx-demos-03', slug: 'demo', publicOrigin: 'https://demo.web-express.com.ar' };
+  const ctx = { origin: DEPLOYMENT, slug: 'demo', publicOrigin: 'https://demo.web-express.com.ar' };
   assert.equal(publicLocation('/demo/about/', ctx), '/about/');
   assert.equal(publicLocation('/demo', ctx), '/');
   assert.equal(publicLocation('/demo?x=1', ctx), '/?x=1');
-  assert.equal(publicLocation('https://wx-demos-03.pages.dev/demo/about/', ctx), 'https://demo.web-express.com.ar/about/');
+  assert.equal(publicLocation(`${DEPLOYMENT}/demo/about/`, ctx), 'https://demo.web-express.com.ar/about/');
   assert.equal(publicLocation('/demo-two/x', ctx), '/demo-two/x');
   assert.equal(publicLocation('https://elsewhere.com/demo/x', ctx), 'https://elsewhere.com/demo/x');
 });
 
+/** `placements`: slug → shard, or slug → {shard, url} (url = the shard's deployment URL in D1). */
 function fakeEnv(placements) {
   const queries = [];
   return {
@@ -43,9 +53,11 @@ function fakeEnv(placements) {
       DB: {
         prepare: (sql) => ({
           bind: (slug) => ({
-            first: async (column) => {
-              queries.push({ sql, slug, column });
-              return placements[slug] ?? null;
+            first: async () => {
+              queries.push({ sql, slug });
+              const placement = placements[slug];
+              if (!placement) return null;
+              return typeof placement === 'string' ? { shard: placement, url: DEPLOYMENT } : placement;
             },
           }),
         }),
@@ -89,10 +101,17 @@ test('a placed demo is proxied to its shard path and the lookup is cached', asyn
     await Promise.all(ctx.pending);
     assert.equal(await response.text(), 'upstream');
   }
-  assert.deepEqual(calls.map((r) => r.url), ['https://wx-demos-03.pages.dev/demo/img/a.webp?v=2', 'https://wx-demos-03.pages.dev/demo/img/a.webp?v=2']);
+  assert.deepEqual(calls.map((r) => r.url), [`${DEPLOYMENT}/demo/img/a.webp?v=2`, `${DEPLOYMENT}/demo/img/a.webp?v=2`]);
   assert.equal(calls[0].redirect, 'manual');
   assert.equal(queries.length, 1);
-  assert.match(cache.entries.values().next().value.headers.get('Cache-Control'), /max-age=300/);
+  assert.match(cache.entries.values().next().value.headers.get('Cache-Control'), /max-age=15/);
+});
+
+test('a shard with no deployment URL in D1 is proxied through its pages.dev alias', async () => {
+  const { env } = fakeEnv({ demo: { shard: 'wx-demos-03', url: null } });
+  const { calls, fetchFn } = recordingFetch();
+  await handleRequest(new Request('https://demo.web-express.com.ar/x'), env, fakeCtx(), { fetchFn, cache: fakeCache() });
+  assert.equal(calls[0].url, 'https://wx-demos-03.pages.dev/demo/x');
 });
 
 test('shard redirects come back with the public path', async () => {
@@ -120,7 +139,7 @@ test('unknown demo hosts and non-demo hosts pass through untouched', async () =>
 });
 
 test('a malformed shard value in D1 is treated as unknown', async () => {
-  const { env } = fakeEnv({ demo: 'evil.example.com' });
+  const { env } = fakeEnv({ demo: { shard: 'evil.example.com', url: null } });
   const { calls, fetchFn } = recordingFetch();
   const request = new Request('https://demo.web-express.com.ar/');
   await handleRequest(request, env, fakeCtx(), { fetchFn, cache: fakeCache() });
@@ -157,7 +176,7 @@ test('a shard 404 is replaced by the demo 404.html (status stays 404) when it ex
   assert.equal(response.status, 404);
   assert.equal(await response.text(), 'custom');
   assert.equal(response.headers.get('Content-Type'), 'text/html');
-  assert.deepEqual(calls.map((r) => r.url), ['https://wx-demos-03.pages.dev/demo/nope', 'https://wx-demos-03.pages.dev/demo/404.html']);
+  assert.deepEqual(calls.map((r) => r.url), [`${DEPLOYMENT}/demo/nope`, `${DEPLOYMENT}/demo/404.html`]);
 });
 
 test('a shard 404 stays as is when the demo has no 404.html', async () => {

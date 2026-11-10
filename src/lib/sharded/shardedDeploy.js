@@ -8,7 +8,7 @@ import { validateDir, validateSlug } from '../validate.js';
 import { walkAssets } from './assets.js';
 import { createD1Executor } from './d1.js';
 import { mergeSlugManifest, toSlugManifest, withoutSlug } from './manifest.js';
-import { createDeployment, uploadMissingAssets, upsertManifestHashes } from './pagesDirectUpload.js';
+import { createDeployment, uploadMissingAssets, upsertManifestHashes, waitUntilServing } from './pagesDirectUpload.js';
 import {
   commitUnderLease,
   getPlacement,
@@ -22,15 +22,26 @@ import { withShardLock } from './shardLock.js';
 
 function noop() {}
 
+const isoNow = () => new Date().toISOString();
+
 /**
  * Credentials, the D1 executor and the Cloudflare client shared by every
- * sharded operation. `db`/`cloudflareFetchFn`/`resolveAuthFn`/`lockOptions`
- * are injectable for tests; real callers never pass them.
+ * sharded operation. `db`/`cloudflareFetchFn`/`resolveAuthFn`/`lockOptions`/
+ * `waitUntilServingFn` are injectable for tests; real callers never pass them.
  */
-function shardedContext({ apiToken, accountId, databaseId, db, cloudflareFetchFn = cloudflareFetch, resolveAuthFn = resolveAuth, lockOptions }) {
+function shardedContext({
+  apiToken,
+  accountId,
+  databaseId,
+  db,
+  cloudflareFetchFn = cloudflareFetch,
+  resolveAuthFn = resolveAuth,
+  lockOptions,
+  waitUntilServingFn = waitUntilServing,
+}) {
   const auth = resolveAuthFn({ apiToken, accountId });
   const executor = db ?? createD1Executor({ ...auth, databaseId: resolveDemosDatabaseId(databaseId), cloudflareFetchFn });
-  return { ...auth, db: executor, cloudflareFetchFn, lockOptions };
+  return { ...auth, db: executor, cloudflareFetchFn, lockOptions, waitUntilServingFn };
 }
 
 async function pickShard(db, slug, fileCount) {
@@ -64,7 +75,14 @@ async function publishManifest(ctx, lease, manifest) {
   await lease.renew();
   const deployment = await createDeployment(cloudflare);
   await lease.renew();
+  await ctx.waitUntilServingFn(deployment.url, probePath(manifest));
+  await lease.renew();
   return deployment;
+}
+
+function probePath(manifest) {
+  const [first] = Object.keys(manifest);
+  return first ? encodeURI(first) : '/';
 }
 
 async function publishSlug(ctx, lease, { slug, leadId, slugManifest }) {
@@ -73,7 +91,7 @@ async function publishSlug(ctx, lease, { slug, leadId, slugManifest }) {
   assertWithinPagesLimit(lease.shard, merged);
   const deployment = await publishManifest(ctx, lease, merged);
   const updatedAt = new Date().toISOString();
-  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, slug, leadId, slugManifest, updatedAt }));
+  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, slug, leadId, slugManifest, deploymentUrl: deployment.url, updatedAt }));
   return deployment;
 }
 
@@ -96,7 +114,13 @@ export async function deploySharded({ dir, slug, leadId = null, onProgress = noo
 
   onProgress('publishing');
   const slugManifest = toSlugManifest(slug, assets);
-  const deployment = await withShardLock(ctx.db, shard, (lease) => publishSlug(ctx, lease, { slug, leadId, slugManifest }), ctx.lockOptions);
+  // Timestamps let concurrent same-shard deploys show they ran one after the other.
+  const lock = { requestedAt: isoNow() };
+  const deployment = await withShardLock(ctx.db, shard, (lease) => {
+    lock.acquiredAt = isoNow();
+    return publishSlug(ctx, lease, { slug, leadId, slugManifest });
+  }, ctx.lockOptions);
+  lock.releasedAt = isoNow();
   return {
     status: 'deployed',
     slug,
@@ -105,13 +129,15 @@ export async function deploySharded({ dir, slug, leadId = null, onProgress = noo
     deploymentUrl: deployment.url,
     files: assets.length,
     uploaded,
+    lock,
   };
 }
 
 async function unpublishSlug(ctx, lease, slug) {
   const remaining = withoutSlug(await readShardManifest(ctx.db, lease.shard), slug);
-  await publishManifest(ctx, lease, remaining);
-  await commitUnderLease(ctx.db, lease, slugRemoveStatements({ lease, slug }));
+  const deployment = await publishManifest(ctx, lease, remaining);
+  const updatedAt = new Date().toISOString();
+  await commitUnderLease(ctx.db, lease, slugRemoveStatements({ lease, slug, deploymentUrl: deployment.url, updatedAt }));
 }
 
 /** Takes `/<slug>/` out of its shard: redeploys the shard without it and drops its manifest rows and placement. */

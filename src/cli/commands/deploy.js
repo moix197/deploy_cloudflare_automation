@@ -15,7 +15,7 @@ function parseDeployArgs(args) {
 
 async function deployShardedCommand({ dir, slug, leadId, databaseId }) {
   const result = await deploySharded({ dir, slug, leadId: Number.isInteger(leadId) ? leadId : null, databaseId });
-  return { status: result.status, url: result.url, slug: result.slug, shard: result.shard, files: result.files, uploaded: result.uploaded };
+  return { status: result.status, url: result.url, slug: result.slug, shard: result.shard, files: result.files, uploaded: result.uploaded, lock: result.lock };
 }
 
 export async function deployCommand(args, { json } = {}) {

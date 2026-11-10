@@ -11,6 +11,7 @@ import { createSqliteD1 } from './sqliteD1.testkit.js';
 
 const auth = { apiToken: 't', accountId: 'acc' };
 const resolveAuthFn = () => auth;
+const waitUntilServingFn = async () => true;
 
 function jwt(expSeconds) {
   const part = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -76,7 +77,7 @@ test('deploys two demos into one shard manifest, redeploys one without touching 
   }, async ({ a, b }) => {
     const db = createSqliteD1();
     const pages = fakePages();
-    const options = { db, resolveAuthFn, cloudflareFetchFn: pages.cloudflareFetchFn };
+    const options = { db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn };
 
     const first = await deploySharded({ dir: a, slug: 'alpha', leadId: 7, ...options });
     assert.deepEqual(
@@ -102,19 +103,23 @@ test('deploys two demos into one shard manifest, redeploys one without touching 
     assert.deepEqual(placement, { shard: 'wx-demos-01', lead_id: 7, file_count: 2 }); // lead_id kept when not passed again
     const files = await db.query("SELECT path, hash FROM demo_files WHERE shard = 'wx-demos-01' ORDER BY path");
     assert.deepEqual(Object.fromEntries(files.map((r) => [r.path, r.hash])), last.manifest);
+    const deploymentUrl = async () => (await db.query("SELECT url FROM shard_deployments WHERE shard = 'wx-demos-01'"))[0].url;
+    assert.equal(await deploymentUrl(), redeploy.deploymentUrl);
+    assert.ok(redeploy.lock.requestedAt <= redeploy.lock.acquiredAt && redeploy.lock.acquiredAt <= redeploy.lock.releasedAt);
 
     assert.deepEqual(await removeSharded({ slug: 'alpha', ...options }), { status: 'removed', slug: 'alpha', shard: 'wx-demos-01' });
     assert.deepEqual(pages.deployments.at(-1), { shard: 'wx-demos-01', branch: 'main', manifest: {} });
     assert.deepEqual(await db.query("SELECT * FROM demo_files WHERE shard = 'wx-demos-01'"), []);
     assert.deepEqual(await db.query("SELECT * FROM demo_placements WHERE slug = 'alpha'"), []);
     assert.deepEqual(await db.query('SELECT * FROM shard_locks'), []);
+    assert.equal(await deploymentUrl(), `https://${pages.deployments.length}.wx-demos-01.pages.dev`);
   }));
 
 test('redeploying a slug keeps a slug that shares its prefix on the same shard', () =>
   withSites({ a: { 'index.html': 'one' }, b: { 'index.html': 'two' } }, async ({ a, b }) => {
     const db = createSqliteD1();
     const pages = fakePages();
-    const options = { db, resolveAuthFn, cloudflareFetchFn: pages.cloudflareFetchFn };
+    const options = { db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn };
     await deploySharded({ dir: a, slug: 'demo', ...options });
     await db.query("INSERT INTO demo_placements VALUES ('demo-two', 'wx-demos-01', NULL, 0, 'x')");
     await deploySharded({ dir: b, slug: 'demo-two', ...options });
@@ -133,15 +138,16 @@ test('a write after the lease was taken over records nothing and fails with Shar
       if (path.endsWith('/deployments')) await db.query("UPDATE shard_locks SET holder = 'thief'");
       return result;
     };
-    await assert.rejects(deploySharded({ dir: a, slug: 'alpha', db, resolveAuthFn, cloudflareFetchFn }), ShardLockLostError);
+    await assert.rejects(deploySharded({ dir: a, slug: 'alpha', db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn }), ShardLockLostError);
     assert.deepEqual(await db.query('SELECT * FROM demo_files'), []);
     assert.deepEqual(await db.query('SELECT * FROM demo_placements'), []);
+    assert.deepEqual(await db.query('SELECT * FROM shard_deployments'), []);
   }));
 
 test('removeSharded on an unknown slug fails with PlacementNotFoundError', async () => {
   const pages = fakePages();
   await assert.rejects(
-    removeSharded({ slug: 'nope', db: createSqliteD1(), resolveAuthFn, cloudflareFetchFn: pages.cloudflareFetchFn }),
+    removeSharded({ slug: 'nope', db: createSqliteD1(), resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn }),
     PlacementNotFoundError,
   );
 });
@@ -179,7 +185,7 @@ test('the deployment upserts every hash of the merged manifest, other demos incl
   withSites({ a: { 'index.html': 'A' }, b: { 'index.html': 'B' } }, async ({ a, b }) => {
     const db = createSqliteD1();
     const pages = fakePages();
-    const base = { db, resolveAuthFn, cloudflareFetchFn: pages.cloudflareFetchFn };
+    const base = { db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn };
     await deploySharded({ dir: a, slug: 'alpha', ...base });
     await db.query("INSERT INTO demo_placements VALUES ('beta', 'wx-demos-01', NULL, 1, 'x')");
     await deploySharded({ dir: b, slug: 'beta', ...base });
@@ -199,6 +205,6 @@ test('the lease is renewed after createDeployment too, and a lease lost during i
       if (path.endsWith('/deployments')) await db.query("UPDATE shard_locks SET holder = 'thief'");
       return result;
     };
-    await assert.rejects(deploySharded({ dir: a, slug: 'alpha', db, resolveAuthFn, cloudflareFetchFn, lockOptions }), ShardLockLostError);
+    await assert.rejects(deploySharded({ dir: a, slug: 'alpha', db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn, lockOptions }), ShardLockLostError);
     assert.deepEqual(await db.query('SELECT * FROM demo_placements'), []);
   }));

@@ -160,3 +160,24 @@ export function createDeployment({ shard, manifest, apiToken, accountId, cloudfl
     body: form,
   });
 }
+
+const READY_TIMEOUT_MS = 60_000;
+const READY_POLL_MS = 2_000;
+
+/**
+ * A new deployment URL answers 5xx (522) for a few seconds; the Worker must
+ * not be pointed at it before it serves. `probePath` is a manifest path
+ * (expects < 400) or `/` for an empty manifest (expects < 500). Best effort:
+ * after the timeout the caller records the deployment anyway, since Pages
+ * already published it.
+ */
+export async function waitUntilServing(deploymentUrl, probePath, { fetchFn = fetch, sleep = sleepMs, now = Date.now, timeoutMs = READY_TIMEOUT_MS } = {}) {
+  const maxStatus = probePath === '/' ? 500 : 400;
+  const startedAt = now();
+  for (;;) {
+    const status = await fetchFn(`${deploymentUrl}${probePath}`, { method: 'HEAD', redirect: 'manual' }).then((r) => r.status, () => 0);
+    if (status > 0 && status < maxStatus) return true;
+    if (now() - startedAt >= timeoutMs) return false;
+    await sleep(READY_POLL_MS);
+  }
+}
