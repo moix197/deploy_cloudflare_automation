@@ -41,3 +41,11 @@ installing" rule, and only for the upload step. Every other Cloudflare
 interaction in this package is a plain `cloudflareFetch` call. How that one
 call site actually invokes wrangler is its own decision — see
 [`spawn-wrangler-js-entrypoint-no-shell.md`](spawn-wrangler-js-entrypoint-no-shell.md).
+
+## Exception: sharded mode
+
+`--sharded` cannot use `wrangler pages deploy` (it would need every demo on
+the shard locally), so `src/lib/sharded/pagesDirectUpload.js` reimplements
+wrangler's direct-upload flow over REST, with hashing pinned to wrangler's by
+tests. The default mode still uploads through wrangler. See
+[`sharded-demo-hosting.md`](sharded-demo-hosting.md).

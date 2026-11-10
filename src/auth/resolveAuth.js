@@ -55,3 +55,13 @@ export function resolveAuth(overrides = {}, { env = process.env, envFile = readE
   const accountId = resolveCredential('CLOUDFLARE_ACCOUNT_ID', overrides.accountId, envFile, env);
   return { apiToken, accountId };
 }
+
+/**
+ * Resolves the D1 database holding the sharded-hosting tables
+ * (`demo_placements`, `demo_files`, `shard_locks`; schema owned by
+ * factory-cli's migrations) with the same precedence as the credentials:
+ * explicit arg → package .env → process.env (`DEMOS_D1_DATABASE_ID`).
+ */
+export function resolveDemosDatabaseId(override, { env = process.env, envFile = readEnvFile() } = {}) {
+  return resolveCredential('DEMOS_D1_DATABASE_ID', override, envFile, env);
+}

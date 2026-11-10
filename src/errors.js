@@ -89,6 +89,51 @@ export class ProjectCreateError extends CliError {
   }
 }
 
+export class ShardsFullError extends CliError {
+  constructor(slug, fileCount) {
+    super(`No demo shard has room for "${slug}" (${fileCount} files) — add shards`, 'SHARDS_FULL');
+    this.slug = slug;
+    this.fileCount = fileCount;
+  }
+}
+
+export class ShardFileLimitError extends CliError {
+  constructor(shard, fileCount, limit) {
+    super(`Shard "${shard}" would hold ${fileCount} files, over the limit of ${limit}`, 'SHARD_FILE_LIMIT');
+    this.shard = shard;
+    this.fileCount = fileCount;
+  }
+}
+
+export class ShardLockTimeoutError extends CliError {
+  constructor(shard, waitedMs) {
+    super(`Timed out after ${Math.round(waitedMs / 1000)}s waiting for the lock on shard "${shard}"`, 'SHARD_LOCK_TIMEOUT');
+    this.shard = shard;
+  }
+}
+
+export class ShardLockLostError extends CliError {
+  constructor(shard) {
+    super(`Lost the lease on shard "${shard}" before the D1 write landed — redeploy`, 'SHARD_LOCK_LOST');
+    this.shard = shard;
+  }
+}
+
+export class PlacementNotFoundError extends CliError {
+  constructor(slug) {
+    super(`No sharded demo placement found for "${slug}"`, 'PLACEMENT_NOT_FOUND');
+    this.slug = slug;
+  }
+}
+
+export class ShardSubdomainMismatchError extends CliError {
+  constructor(shard, subdomain) {
+    super(`Shard project "${shard}" is served at "${subdomain}", not "${shard}.pages.dev" — the routing Worker cannot reach it`, 'SHARD_SUBDOMAIN_MISMATCH');
+    this.shard = shard;
+    this.subdomain = subdomain;
+  }
+}
+
 export class ProjectNotFoundError extends CliError {
   constructor(slug) {
     super(`Cloudflare Pages project "${slug}" was not found`, 'PROJECT_NOT_FOUND');

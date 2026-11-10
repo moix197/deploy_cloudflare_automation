@@ -7,7 +7,12 @@ export { CloudflareHttpError, CloudflareApiError, CloudflareResponseParseError }
 
 const API_BASE_URL = 'https://api.cloudflare.com/client/v4';
 
+// A FormData body (Pages deployment creation is multipart) must go out as-is
+// so fetch sets the multipart boundary itself.
 function buildRequestInit({ apiToken, method, body }) {
+  if (body instanceof FormData) {
+    return { method, headers: { Authorization: `Bearer ${apiToken}` }, body };
+  }
   return {
     method,
     headers: {

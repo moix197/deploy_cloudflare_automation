@@ -17,8 +17,8 @@ pnpm install
 ```
 
 Requires Node >=22 (uses the built-in `fetch` and test runner — no HTTP
-client or test framework dependency). `wrangler` is the only runtime
-dependency; see [`.ai/decisions/wrangler-scope-limited-to-upload.md`](.ai/decisions/wrangler-scope-limited-to-upload.md)
+client or test framework dependency). `wrangler` is the main runtime
+dependency (plus `blake3-wasm`, the hash wrangler uses, for sharded mode); see [`.ai/decisions/wrangler-scope-limited-to-upload.md`](.ai/decisions/wrangler-scope-limited-to-upload.md)
 for why it's scoped to just the file-upload step.
 
 ## Manual Setup (Cloudflare Dashboard)
@@ -207,6 +207,100 @@ await deleteProject({ slug: 'my-app' });
 | --- | --- |
 | `PROJECT_NOT_FOUND` | `delete` was called with a slug that doesn't exist in the account |
 | `INVALID_SLUG` | `delete` was called with a slug that fails the format rule above |
+
+## Sharded demo hosting (`--sharded`)
+
+The default mode above spends one Pages project per slug, and an account is
+capped at 100 projects. Sharded mode hosts many demos in **10 shared
+projects** (`wx-demos-01` … `wx-demos-10`): each demo is published under
+`/<slug>/` of one shard and served publicly at
+`https://<slug>.web-express.com.ar` by the routing Worker in `worker/`.
+The default mode is unchanged; sharded mode is opt-in per call.
+
+State lives in factory-cli's D1 database (schema:
+factory-cli `migrations/d1/0008_demo_shards.sql`):
+
+| Table | Holds |
+| --- | --- |
+| `demo_placements(slug, shard, lead_id, file_count, updated_at)` | which shard serves each slug (the Worker reads this) |
+| `demo_files(shard, path, hash)` | each shard's current Pages manifest, so a deploy never needs other demos' files |
+| `shard_locks(shard, holder, expires_at)` | a ~2 min lease per shard serializing manifest read → deploy → write |
+
+Extra configuration: `DEMOS_D1_DATABASE_ID` (package `.env`/env, or
+`--d1-database <id>`), and the token needs **D1 Edit** on top of Pages Edit.
+
+### `shards init`
+
+Idempotently creates the 10 shard projects and fails with
+`SHARD_SUBDOMAIN_MISMATCH` if any is not served at `<name>.pages.dev` (the
+address the Worker proxies to).
+
+```
+node bin/cloudflare-pages-deploy.js shards init --json
+```
+
+### `deploy --sharded`
+
+```
+node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug> --sharded [--lead-id <n>] [--d1-database <id>] --json
+```
+
+```json
+{ "ok": true, "status": "deployed", "url": "https://wx-demos-03.pages.dev/<slug>/", "slug": "<slug>", "shard": "wx-demos-03", "files": 412, "uploaded": 37 }
+```
+
+`url` is the raw shard path (assets referenced from `/` only resolve through
+the Worker); the public URL is `https://<slug>.web-express.com.ar`.
+
+Steps: hash every file exactly like `wrangler pages deploy` (blake3 of
+base64 contents + extension, 32 hex; `blake3-wasm` is a dependency for this)
+→ choose the shard (existing placement wins; otherwise fewest files, skipping
+any shard that would pass 18,000 files) → Pages direct upload of this slug
+only (upload JWT → check-missing → upload missing → upsert-hashes) → take
+the shard lease (retried with backoff up to ~5 min) → merge the stored shard
+manifest (this slug's `/<slug>/…` entries replaced, stale ones dropped) →
+create the deployment from it → write manifest rows + placement in one D1
+transaction guarded by the lease → release.
+
+### `delete --sharded`
+
+```
+node bin/cloudflare-pages-deploy.js delete --slug <slug> --sharded --json
+```
+
+Redeploys the slug's shard without `/<slug>/…` and drops its manifest rows
+and placement. Unknown slug → `PLACEMENT_NOT_FOUND`.
+
+#### Error codes (sharded)
+
+| Error | Meaning |
+| --- | --- |
+| `SHARDS_FULL` | No shard has room for this demo under the 18,000-file budget — add shards |
+| `SHARD_FILE_LIMIT` | The merged manifest would exceed Pages' 20,000 files |
+| `SHARD_LOCK_TIMEOUT` | Another deploy held the shard for over ~5 min |
+| `SHARD_LOCK_LOST` | The lease was taken over before the D1 write; nothing was recorded — redeploy |
+| `PLACEMENT_CONFLICT` | A concurrent first deploy of the same slug placed it on another shard — rerun |
+| `PLACEMENT_NOT_FOUND` | `delete --sharded` for a slug with no placement |
+| `SHARD_SUBDOMAIN_MISMATCH` | A shard project is not served at `<name>.pages.dev` |
+| `FILE_TOO_LARGE` | A file is over Pages' 25 MiB limit |
+
+### Routing Worker (`worker/`)
+
+`worker/wrangler.toml` routes `*.web-express.com.ar/*` to `worker/src/index.js`,
+which maps `<slug>` → shard through the `DB` D1 binding (cached ~5 min,
+unknown slugs ~1 min, via the Cache API) and proxies GET/HEAD to
+`https://<shard>.pages.dev/<slug><path>?<query>`, rewriting Pages' own
+redirects back to public paths. Any host that is not a placed demo is passed
+through with `fetch(request)`; other methods on a demo get 405.
+
+### Rollout (production, in order)
+
+1. Apply factory-cli `migrations/d1/0008_demo_shards.sql` to D1 `web-express` (plain execute, not `migrations apply`): from this repo, `pnpm exec wrangler d1 execute web-express --remote --file ../web_factory/factory-cli/migrations/d1/0008_demo_shards.sql`.
+2. Give the deployer token **D1 Edit**; set `DEMOS_D1_DATABASE_ID` (or let factory-cli pass `--d1-database`).
+3. `node bin/cloudflare-pages-deploy.js shards init --json`.
+4. DNS on `web-express.com.ar`: proxied wildcard `*` record (e.g. `AAAA * 100::`, proxied) so every subdomain reaches Cloudflare.
+5. `pnpm exec wrangler deploy --config worker/wrangler.toml` with a token holding Workers Scripts Edit + Workers Routes Edit (zone) + D1.
+6. Deploy one demo with `--sharded`, check `https://<slug>.web-express.com.ar`, then set `FACTORY_DEPLOY_MODE=sharded` in factory-cli.
 
 ## Development
 

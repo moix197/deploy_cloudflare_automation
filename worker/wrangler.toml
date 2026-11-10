@@ -1,0 +1,19 @@
+# Routing Worker for sharded demos: <slug>.web-express.com.ar -> wx-demos-NN.pages.dev/<slug>/.
+# Not deployed by this repo's CLI; see README "Sharded demo hosting" for the rollout.
+name = "wx-demos-router"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+routes = [
+  { pattern = "*.web-express.com.ar/*", zone_name = "web-express.com.ar" },
+]
+
+[vars]
+DEMO_BASE_DOMAIN = "web-express.com.ar"
+
+# factory-cli's production D1 "web-express" (holds demo_placements).
+[[d1_databases]]
+binding = "DB"
+database_name = "web-express"
+database_id = "633fa4eb-70a0-4ceb-9012-dd83277a9f3a"

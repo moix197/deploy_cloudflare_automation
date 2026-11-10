@@ -29,6 +29,9 @@ Where it is used today:
 | `src/lib/deleteProject.js` | `cloudflareFetchFn`, `resolveAuthFn` |
 | `src/lib/deploy.js` | `resolveAuthFn`, `ensureProjectFn`, `runWranglerFn`, `readProjectSubdomainFn` |
 | `src/cli/commands/checkAuth.js` | `resolveAuthFn`, `verifyTokenFn` |
+| `src/lib/sharded/shardedDeploy.js` | `db` (D1 executor), `cloudflareFetchFn`, `resolveAuthFn`, `lockOptions`, `ensureProjectFn` |
+| `src/lib/sharded/shardLock.js` | `now`, `sleep`, `holder` |
+| `worker/src/index.js` | `fetchFn`, `cache` |
 
 ## Why not a DI container or module mocking
 

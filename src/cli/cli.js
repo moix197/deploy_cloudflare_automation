@@ -2,6 +2,7 @@ import { checkAuthCommand } from './commands/checkAuth.js';
 import { deployCommand } from './commands/deploy.js';
 import { listCommand } from './commands/list.js';
 import { deleteCommand } from './commands/delete.js';
+import { shardsCommand } from './commands/shards.js';
 import { CliError } from '../errors.js';
 
 const commands = {
@@ -9,6 +10,7 @@ const commands = {
   deploy: deployCommand,
   list: listCommand,
   delete: deleteCommand,
+  shards: shardsCommand,
 };
 
 function parseArgs(argv) {
