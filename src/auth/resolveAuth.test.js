@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveAuth, resolveShardedAuth } from './resolveAuth.js';
+import { resolveAuth } from './resolveAuth.js';
 import { MissingCredentialError } from '../errors.js';
 
 test('explicit args take precedence over .env and process.env', () => {
@@ -59,20 +59,11 @@ test('throws MissingCredentialError naming CLOUDFLARE_ACCOUNT_ID when it is miss
   );
 });
 
-test('resolveShardedAuth: DEMOS_* process.env beats the package .env and CLOUDFLARE_* env', () => {
-  const result = resolveShardedAuth(
-    {},
-    {
-      env: { DEMOS_CLOUDFLARE_API_TOKEN: 'demos-token', DEMOS_CLOUDFLARE_ACCOUNT_ID: 'demos-account', CLOUDFLARE_API_TOKEN: 'env-token' },
-      envFile: { CLOUDFLARE_API_TOKEN: 'file-token', CLOUDFLARE_ACCOUNT_ID: 'file-account' },
-    },
-  );
-  assert.deepEqual(result, { apiToken: 'demos-token', accountId: 'demos-account' });
-});
-
-test('resolveShardedAuth: explicit args beat DEMOS_*; blank DEMOS_* falls back to resolveAuth', () => {
-  const env = { DEMOS_CLOUDFLARE_API_TOKEN: 'demos-token', DEMOS_CLOUDFLARE_ACCOUNT_ID: '  ' };
+test('DEPLOYER_CLOUDFLARE_* precedence: arg > DEPLOYER_* env > .env > CLOUDFLARE_* env; blank DEPLOYER_* ignored', () => {
+  const env = { DEPLOYER_CLOUDFLARE_API_TOKEN: 'dep-token', DEPLOYER_CLOUDFLARE_ACCOUNT_ID: '  ', CLOUDFLARE_API_TOKEN: 'env-token', CLOUDFLARE_ACCOUNT_ID: 'env-account' };
   const envFile = { CLOUDFLARE_API_TOKEN: 'file-token', CLOUDFLARE_ACCOUNT_ID: 'file-account' };
-  assert.deepEqual(resolveShardedAuth({ apiToken: 'arg-token' }, { env, envFile }), { apiToken: 'arg-token', accountId: 'file-account' });
-  assert.deepEqual(resolveShardedAuth({}, { env: {}, envFile }), { apiToken: 'file-token', accountId: 'file-account' });
+  assert.deepEqual(resolveAuth({}, { env, envFile }), { apiToken: 'dep-token', accountId: 'file-account' });
+  assert.deepEqual(resolveAuth({ apiToken: 'arg-token' }, { env, envFile }), { apiToken: 'arg-token', accountId: 'file-account' });
+  assert.deepEqual(resolveAuth({}, { env: { CLOUDFLARE_API_TOKEN: 'env-token', CLOUDFLARE_ACCOUNT_ID: 'env-account' }, envFile }), { apiToken: 'file-token', accountId: 'file-account' });
+  assert.deepEqual(resolveAuth({}, { env: { CLOUDFLARE_API_TOKEN: 'env-token', CLOUDFLARE_ACCOUNT_ID: 'env-account' }, envFile: {} }), { apiToken: 'env-token', accountId: 'env-account' });
 });

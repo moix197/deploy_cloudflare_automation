@@ -1,6 +1,6 @@
 import { resolve as resolvePath } from 'node:path';
 
-import { resolveShardedAuth, resolveDemosDatabaseId } from '../../auth/resolveAuth.js';
+import { resolveAuth, resolveDemosDatabaseId } from '../../auth/resolveAuth.js';
 import { CliError, PlacementNotFoundError, ShardFileLimitError, ShardsFullError, ShardSubdomainMismatchError } from '../../errors.js';
 import { cloudflareFetch } from '../cloudflareApi.js';
 import { ensureProject } from '../ensureProject.js';
@@ -27,7 +27,7 @@ function noop() {}
  * sharded operation. `db`/`cloudflareFetchFn`/`resolveAuthFn`/`lockOptions`
  * are injectable for tests; real callers never pass them.
  */
-function shardedContext({ apiToken, accountId, databaseId, db, cloudflareFetchFn = cloudflareFetch, resolveAuthFn = resolveShardedAuth, lockOptions }) {
+function shardedContext({ apiToken, accountId, databaseId, db, cloudflareFetchFn = cloudflareFetch, resolveAuthFn = resolveAuth, lockOptions }) {
   const auth = resolveAuthFn({ apiToken, accountId });
   const executor = db ?? createD1Executor({ ...auth, databaseId: resolveDemosDatabaseId(databaseId), cloudflareFetchFn });
   return { ...auth, db: executor, cloudflareFetchFn, lockOptions };
@@ -129,7 +129,7 @@ export async function removeSharded({ slug, ...options } = {}) {
  * `<name>.pages.dev`, the address the routing Worker proxies to.
  * `ensureProjectFn`/`resolveAuthFn` are injectable for tests; real callers never pass them.
  */
-export async function initShards({ shards = shardNames(), apiToken, accountId, ensureProjectFn = ensureProject, resolveAuthFn = resolveShardedAuth } = {}) {
+export async function initShards({ shards = shardNames(), apiToken, accountId, ensureProjectFn = ensureProject, resolveAuthFn = resolveAuth } = {}) {
   const auth = resolveAuthFn({ apiToken, accountId });
   for (const name of shards) {
     const project = await ensureProjectFn({ slug: name, ...auth });

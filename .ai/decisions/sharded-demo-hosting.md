@@ -50,9 +50,9 @@ Opt-in `--sharded` mode (default mode untouched):
 - Assets' content type comes from a curated subset of mime@3
   (`src/lib/sharded/contentType.js`); unlisted extensions upload as
   `application/octet-stream`.
-- Sharded commands resolve credentials via `resolveShardedAuth`: explicit args >
-  `DEMOS_CLOUDFLARE_API_TOKEN`/`DEMOS_CLOUDFLARE_ACCOUNT_ID` (process.env) >
-  `resolveAuth` (package `.env` > `CLOUDFLARE_*`). Why: the package `.env` is
-  shared with another project and must stay unchanged, yet `resolveAuth` ranks
-  it above process.env, so the parent (factory-cli) could not supply its own
-  token. Non-sharded paths still use `resolveAuth` only.
+- `resolveAuth` precedence: explicit args > `DEPLOYER_CLOUDFLARE_API_TOKEN`/
+  `DEPLOYER_CLOUDFLARE_ACCOUNT_ID` (process.env) > package `.env` >
+  `CLOUDFLARE_*` (process.env). Why: the package `.env` is shared with another
+  project and must stay unchanged, yet it outranks process.env, so a parent
+  (factory-cli) could not supply its own token. With `DEPLOYER_*` unset the
+  chain is identical to before for every command.

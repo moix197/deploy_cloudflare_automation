@@ -40,7 +40,8 @@ function isBlank(value) {
  * precedence chain instead of falling through to it.
  */
 function resolveCredential(varName, overrideValue, envFile, env) {
-  const value = [overrideValue, envFile[varName], env[varName]].find((candidate) => !isBlank(candidate));
+  const externalName = varName.replace('CLOUDFLARE_', 'DEPLOYER_CLOUDFLARE_');
+  const value = [overrideValue, env[externalName], envFile[varName], env[varName]].find((candidate) => !isBlank(candidate));
   if (isBlank(value)) throw new MissingCredentialError(varName);
   return value;
 }
@@ -54,21 +55,6 @@ export function resolveAuth(overrides = {}, { env = process.env, envFile = readE
   const apiToken = resolveCredential('CLOUDFLARE_API_TOKEN', overrides.apiToken, envFile, env);
   const accountId = resolveCredential('CLOUDFLARE_ACCOUNT_ID', overrides.accountId, envFile, env);
   return { apiToken, accountId };
-}
-
-/**
- * Sharded-mode credentials: `DEMOS_CLOUDFLARE_API_TOKEN` /
- * `DEMOS_CLOUDFLARE_ACCOUNT_ID` in process.env win over the package `.env`
- * (which is shared with another project and must not change), but explicit
- * args still win over them. Falls back to `resolveAuth` per credential.
- * Only sharded code paths use this; the default mode is untouched.
- */
-export function resolveShardedAuth(overrides = {}, { env = process.env, envFile = readEnvFile() } = {}) {
-  const demosOverrides = {
-    apiToken: [overrides.apiToken, env.DEMOS_CLOUDFLARE_API_TOKEN].find((value) => !isBlank(value)),
-    accountId: [overrides.accountId, env.DEMOS_CLOUDFLARE_ACCOUNT_ID].find((value) => !isBlank(value)),
-  };
-  return resolveAuth(demosOverrides, { env, envFile });
 }
 
 /**
