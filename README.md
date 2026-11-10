@@ -6,6 +6,8 @@ given an already-built static directory and an explicit slug, publish it to
 sites and keeps no local state — every result it produces (including the
 final URL) is read straight back from Cloudflare's API.
 
+**Demos for web_factory/factory-cli no longer use this default mode:** `factory` deploys with `--sharded` (10 shared `wx-demos-NN` projects served at `https://<slug>.web-express.com.ar`, see "Sharded demo hosting" below). The per-slug `*.pages.dev` mode documented first is the legacy/fallback path.
+
 Usable both as a library (for a future monorepo to call directly) and as a
 CLI (for AI-driven workflows that need a single machine-parseable JSON
 result via `--json`).

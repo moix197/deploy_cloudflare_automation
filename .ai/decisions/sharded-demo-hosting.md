@@ -78,3 +78,13 @@ Opt-in `--sharded` mode (default mode untouched):
   project and must stay unchanged, yet it outranks process.env, so a parent
   (factory-cli) could not supply its own token. With `DEPLOYER_*` unset the
   chain is identical to before for every command.
+
+## Operations (production state 2026-11-10)
+
+- Deploy: `deploy --dir <d> --slug <s> --sharded --d1-database <id> --lead-id <n> --json`; check `https://<slug>.web-express.com.ar` (a redeploy shows in seconds; the `<shard>.pages.dev` alias can be stale, never verify through it).
+- Remove: `delete --slug <s> --sharded --json` (shard redeployed without the slug, placement dropped, Worker 404s within seconds). Plain `delete --slug <s>` is for legacy per-demo projects.
+- Limits: 18,000 files per shard placement budget, 20,000 Pages cap, 25 MiB per file; `SHARDS_FULL` means add shards.
+- Tokens: needs Pages Edit + D1 Edit (factory passes its own as `DEPLOYER_CLOUDFLARE_*`); deploying the Worker needs Workers Scripts Edit + zone Workers Routes Edit + D1. Shared `.env` stays untouched.
+- Rollback: per demo, deploy it without `--sharded` (legacy project) then `delete --sharded` the placement; Worker via `wrangler rollback` or redeploying an earlier `worker/`. Migrations 0008/0009 only add tables.
+- Worker var `PASSTHROUGH_SUBDOMAINS` lists real subdomains (add one with every new DNS record and redeploy the Worker), or they get the branded 404.
+- Old per-demo projects were deleted except `cucchiettiboats` and `rosarioagroindustrial` (still `*.pages.dev` until redeployed sharded).
