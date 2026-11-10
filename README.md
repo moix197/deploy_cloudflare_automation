@@ -317,7 +317,7 @@ cached); other methods on a demo get 405.
 3. `node bin/cloudflare-pages-deploy.js shards init --json`.
 4. DNS on `web-express.com.ar`: proxied wildcard `*` record (e.g. `AAAA * 100::`, proxied) so every subdomain reaches Cloudflare.
 5. `pnpm exec wrangler deploy --config worker/wrangler.toml` with a token holding Workers Scripts Edit + Workers Routes Edit (zone) + D1.
-6. Deploy one demo with `--sharded`, check `https://<slug>.web-express.com.ar`, then set `FACTORY_DEPLOY_MODE=sharded` in factory-cli.
+6. Deploy one demo with `--sharded`, check `https://<slug>.web-express.com.ar`, then switch factory-cli to sharded (its default since 2026-11-10; `FACTORY_DEPLOY_MODE=project` falls back).
 
 ## Development
 
