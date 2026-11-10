@@ -303,8 +303,12 @@ unknown slugs ~1 min, via the Cache API) and proxies GET/HEAD to
 `https://<id8>.<shard>.pages.dev/<slug><path>?<query>` (the `<shard>.pages.dev`
 alias only when D1 has no valid deployment URL: the alias can keep serving a
 superseded deployment from Pages' edge cache, `s-maxage=604800`), rewriting Pages' own
-redirects back to public paths. Any host that is not a placed demo is passed
-through with `fetch(request)`; other methods on a demo get 405.
+redirects back to public paths. A slug with no placement gets a branded
+"Demo no encontrada" page with status 404 (`worker/src/notFound.js`). The apex,
+`www` and the names in the `PASSTHROUGH_SUBDOMAINS` wrangler var (comma-separated;
+add a name there whenever a real DNS record is added, then redeploy the Worker) pass
+through with `fetch(request)`, and so does any host when the D1 lookup fails (never
+cached); other methods on a demo get 405.
 
 ### Rollout (production, in order)
 

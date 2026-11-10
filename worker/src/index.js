@@ -1,4 +1,7 @@
-import { demoSlugFromHost, isShardName, PROXIED_METHODS, publicLocation, upstreamOrigin, upstreamUrl } from './routing.js';
+import { demoNotFound } from './notFound.js';
+import {
+  demoSlugFromHost, isShardName, passthroughSubdomains, PROXIED_METHODS, publicLocation, upstreamOrigin, upstreamUrl,
+} from './routing.js';
 
 // Short: the cached origin names a deployment, so a redeploy/delete shows once it expires.
 const KNOWN_TTL_S = 15;
@@ -51,14 +54,22 @@ async function proxyToShard(request, { origin, slug, url, fetchFn }) {
 
 /**
  * `<slug>.<DEMO_BASE_DOMAIN>` → `<shard's latest deployment URL>/<slug><path>`.
- * Any host that is not a placed demo goes on to its origin untouched.
+ * A slug with no placement gets the branded 404. The apex, PASSTHROUGH_SUBDOMAINS
+ * and non-slug hosts go on to their origin untouched, and so does any host when
+ * the D1 lookup fails (a D1 outage must not turn every demo into a 404).
  * `fetchFn`/`cache` are injectable for tests; the Worker runtime passes the real ones.
  */
 export async function handleRequest(request, env, ctx, { fetchFn = fetch, cache = caches.default } = {}) {
   const url = new URL(request.url);
-  const slug = demoSlugFromHost(url.hostname, env.DEMO_BASE_DOMAIN);
-  const origin = slug ? await lookupOrigin({ slug, env, ctx, cache }).catch(() => null) : null;
-  if (!origin) return fetchFn(request);
+  const slug = demoSlugFromHost(url.hostname, env.DEMO_BASE_DOMAIN, passthroughSubdomains(env.PASSTHROUGH_SUBDOMAINS));
+  if (!slug) return fetchFn(request);
+  let origin;
+  try {
+    origin = await lookupOrigin({ slug, env, ctx, cache });
+  } catch {
+    return fetchFn(request);
+  }
+  if (!origin) return demoNotFound(request, env.DEMO_BASE_DOMAIN);
   if (!PROXIED_METHODS.has(request.method)) {
     return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   }

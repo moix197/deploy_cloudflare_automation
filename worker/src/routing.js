@@ -3,17 +3,24 @@
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,56}[a-z0-9]$|^[a-z0-9]$/;
 const SHARD_PATTERN = /^wx-demos-\d{2}$/;
 const DEPLOYMENT_URL_PATTERN = /^https:\/\/[0-9a-f]{8}\.([a-z0-9-]+)\.pages\.dev$/;
-const NOT_DEMOS = new Set(['www']);
+// Kept even if the PASSTHROUGH_SUBDOMAINS var is missing.
+const ALWAYS_PASSTHROUGH = ['www'];
 
 export const PROXIED_METHODS = new Set(['GET', 'HEAD']);
 
-/** `<slug>.<baseDomain>` → slug; anything else → null. */
-export function demoSlugFromHost(host, baseDomain) {
+/** Comma-separated subdomain names (wrangler var PASSTHROUGH_SUBDOMAINS) → Set, always with www. */
+export function passthroughSubdomains(value = '') {
+  const names = String(value).split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
+  return new Set([...ALWAYS_PASSTHROUGH, ...names]);
+}
+
+/** `<slug>.<baseDomain>` → slug; anything else (incl. passthrough subdomains) → null. */
+export function demoSlugFromHost(host, baseDomain, passthrough = passthroughSubdomains()) {
   const name = host.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
   const suffix = `.${baseDomain.toLowerCase()}`;
   if (!name.endsWith(suffix)) return null;
   const label = name.slice(0, -suffix.length);
-  return SLUG_PATTERN.test(label) && !NOT_DEMOS.has(label) ? label : null;
+  return SLUG_PATTERN.test(label) && !passthrough.has(label) ? label : null;
 }
 
 export function isShardName(value) {

@@ -64,8 +64,10 @@ Opt-in `--sharded` mode (default mode untouched):
   any demo on that shard.
 - The Worker trusts `demo_placements.shard` only if it matches `wx-demos-NN`,
   and a `shard_deployments.url` only if it is `https://<8 hex>.<that shard>.pages.dev`.
-- An unknown or removed slug passes through to the wildcard DNS placeholder
-  origin (`AAAA 100::`), so it answers 522, not 404.
+- An unknown or removed slug gets a branded 404 page (`worker/src/notFound.js`).
+  Real subdomains must be listed in the `PASSTHROUGH_SUBDOMAINS` wrangler var
+  (`www` is always included) or they get that 404 too; anything that is not a
+  single slug label still passes through to the `AAAA 100::` placeholder (522).
 - The Worker passes requests through when the D1 lookup throws (not cached) and serves `/<slug>/404.html` with status 404 for a shard 404 when it exists.
 - Assets' content type comes from a curated subset of mime@3
   (`src/lib/sharded/contentType.js`); unlisted extensions upload as

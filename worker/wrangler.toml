@@ -11,6 +11,9 @@ routes = [
 
 [vars]
 DEMO_BASE_DOMAIN = "web-express.com.ar"
+# Real subdomains (non-wildcard DNS names) that must never get the demo 404; www is always included.
+# Add a name here when you add a DNS record for it, then redeploy the Worker.
+PASSTHROUGH_SUBDOMAINS = "www,zmail._domainkey"
 
 # factory-cli's production D1 "web-express" (holds demo_placements).
 [[d1_databases]]

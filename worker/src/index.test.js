@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handleRequest } from './index.js';
-import { demoSlugFromHost, publicLocation, upstreamOrigin, upstreamUrl } from './routing.js';
+import { demoSlugFromHost, passthroughSubdomains, publicLocation, upstreamOrigin, upstreamUrl } from './routing.js';
 
 const BASE = 'web-express.com.ar';
 const DEPLOYMENT = 'https://0123abcd.wx-demos-03.pages.dev';
@@ -17,6 +17,13 @@ test('demoSlugFromHost accepts one valid label under the base domain only', () =
   assert.equal(demoSlugFromHost('-bad.web-express.com.ar', BASE), null);
   assert.equal(demoSlugFromHost('bellevue.web-express.com.ar.evil.com', BASE), null);
   assert.equal(demoSlugFromHost('xweb-express.com.ar', BASE), null);
+});
+
+test('passthroughSubdomains parses the wrangler var and always keeps www', () => {
+  assert.deepEqual([...passthroughSubdomains()], ['www']);
+  assert.deepEqual([...passthroughSubdomains(' Mail , zmail._domainkey,,')], ['www', 'mail', 'zmail._domainkey']);
+  assert.equal(demoSlugFromHost('mail.web-express.com.ar', BASE, passthroughSubdomains('mail')), null);
+  assert.equal(demoSlugFromHost('mail.web-express.com.ar', BASE), 'mail');
 });
 
 test('upstreamUrl keeps path and query under /<slug>', () => {
@@ -122,28 +129,42 @@ test('shard redirects come back with the public path', async () => {
   assert.equal(response.headers.get('Location'), '/about/');
 });
 
-test('unknown demo hosts and non-demo hosts pass through untouched', async () => {
+test('an unknown demo host gets the branded 404 page and the miss is cached', async () => {
   const { env, queries } = fakeEnv({});
-  const { calls, fetchFn } = recordingFetch(() => new Response('origin'));
+  const { calls, fetchFn } = recordingFetch();
   const cache = fakeCache();
-  const unknown = new Request('https://nobody.web-express.com.ar/x');
-  const apex = new Request('https://web-express.com.ar/');
   const ctx = fakeCtx();
-  assert.equal(await (await handleRequest(unknown, env, ctx, { fetchFn, cache })).text(), 'origin');
+  const response = await handleRequest(new Request('https://nobody.web-express.com.ar/x'), env, ctx, { fetchFn, cache });
   await Promise.all(ctx.pending);
-  assert.equal(await (await handleRequest(apex, env, fakeCtx(), { fetchFn, cache })).text(), 'origin');
-  assert.equal(calls[0], unknown);
-  assert.equal(calls[1], apex);
-  assert.equal(queries.length, 1); // the apex never reaches D1
+  assert.equal(response.status, 404);
+  assert.match(response.headers.get('Content-Type'), /text\/html/);
+  assert.match(await response.text(), /Demo no encontrada/);
+  const head = await handleRequest(new Request('https://nobody.web-express.com.ar/', { method: 'HEAD' }), env, fakeCtx(), { fetchFn, cache });
+  assert.equal(head.status, 404);
+  assert.equal(calls.length, 0);
+  assert.equal(queries.length, 1);
   assert.match(cache.entries.values().next().value.headers.get('Cache-Control'), /max-age=60/);
 });
 
-test('a malformed shard value in D1 is treated as unknown', async () => {
+test('the apex, www, PASSTHROUGH_SUBDOMAINS and non-slug hosts pass through without D1', async () => {
+  const { env, queries } = fakeEnv({});
+  env.PASSTHROUGH_SUBDOMAINS = 'mail';
+  const { calls, fetchFn } = recordingFetch(() => new Response('origin'));
+  const hosts = ['web-express.com.ar', 'www.web-express.com.ar', 'mail.web-express.com.ar', 'zmail._domainkey.web-express.com.ar', 'other.com'];
+  for (const host of hosts) {
+    const response = await handleRequest(new Request(`https://${host}/`), env, fakeCtx(), { fetchFn, cache: fakeCache() });
+    assert.equal(await response.text(), 'origin', host);
+  }
+  assert.equal(calls.length, hosts.length);
+  assert.equal(queries.length, 0);
+});
+
+test('a malformed shard value in D1 is treated as unknown (404, never proxied)', async () => {
   const { env } = fakeEnv({ demo: { shard: 'evil.example.com', url: null } });
   const { calls, fetchFn } = recordingFetch();
-  const request = new Request('https://demo.web-express.com.ar/');
-  await handleRequest(request, env, fakeCtx(), { fetchFn, cache: fakeCache() });
-  assert.equal(calls[0], request);
+  const response = await handleRequest(new Request('https://demo.web-express.com.ar/'), env, fakeCtx(), { fetchFn, cache: fakeCache() });
+  assert.equal(response.status, 404);
+  assert.equal(calls.length, 0);
 });
 
 test('non-GET/HEAD requests to a demo get 405 and never reach the shard', async () => {
