@@ -56,6 +56,7 @@ When implementing a feature:
 ## Deployment modes
 
 - factory-cli deploys demos with `--sharded` (default since 2026-11-10; `FACTORY_DEPLOY_MODE=project` there falls back to per-slug `*.pages.dev`). Sharded demos live in `wx-demos-01..10` and are served at `https://<slug>.web-express.com.ar` by the `wx-demos-router` Worker (`worker/`). Operations, limits, rollback, tokens: `.ai/decisions/sharded-demo-hosting.md`.
+- `state/manifests/<shard>/<slug>.json` is the only record of what each shard serves (D1 keeps just a fingerprint); written + auto-committed by sharded deploys. Never hand-edit, delete or move it, and deploy sharded only from this checkout. See the decision doc.
 - This package's `.env` token is shared with another project: never overwrite it. factory-cli supplies its own via `DEPLOYER_CLOUDFLARE_API_TOKEN`/`DEPLOYER_CLOUDFLARE_ACCOUNT_ID`.
 
 ## Style

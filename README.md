@@ -219,14 +219,21 @@ projects** (`wx-demos-01` … `wx-demos-10`): each demo is published under
 `https://<slug>.web-express.com.ar` by the routing Worker in `worker/`.
 The default mode is unchanged; sharded mode is opt-in per call.
 
-State lives in factory-cli's D1 database (schema:
-factory-cli `migrations/d1/0008_demo_shards.sql` and `0009_shard_deployments.sql`):
+Each live demo's Pages manifest is a **local file in this repo, committed
+to git**: `state/manifests/<shard>/<slug>.json` =
+`{slug, shard, leadId, fileCount, fingerprint, deployedAt, deploymentUrl, files: {"/<slug>/<path>": hash}}`
+(`fingerprint` = sha256 of the sorted `path<TAB>hash` lines). It is written
+(and auto-committed, best effort, never pushed) only after a deploy is live,
+so a deploy never needs other demos' files. Never edit these files by hand.
+
+The registry lives in factory-cli's D1 database (schema: factory-cli
+`migrations/d1/0008_demo_shards.sql`, `0009_shard_deployments.sql`,
+`0014_demo_manifest_fingerprints.sql`):
 
 | Table | Holds |
 | --- | --- |
-| `demo_placements(slug, shard, lead_id, file_count, updated_at)` | which shard serves each slug (the Worker reads this) |
-| `demo_files(shard, path, hash)` | each shard's current Pages manifest, so a deploy never needs other demos' files |
-| `shard_locks(shard, holder, expires_at)` | a 5 min lease per shard serializing manifest read → deploy → write |
+| `demo_placements(slug, shard, lead_id, file_count, updated_at, fingerprint)` | which shard serves each slug (the Worker reads this) and the fingerprint + deploy time its local manifest must match |
+| `shard_locks(shard, holder, expires_at)` | a 5 min lease per shard serializing verify → deploy → write |
 | `shard_deployments(shard, url, updated_at)` | each shard's latest deployment URL (`https://<id8>.<shard>.pages.dev`), which the Worker proxies to |
 
 Credentials resolve as explicit args > `DEPLOYER_CLOUDFLARE_API_TOKEN` /
@@ -256,7 +263,8 @@ node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug> --sharded 
 
 ```json
 { "ok": true, "status": "deployed", "url": "https://wx-demos-03.pages.dev/<slug>/", "slug": "<slug>", "shard": "wx-demos-03", "files": 412, "uploaded": 37,
-  "lock": { "requestedAt": "…", "acquiredAt": "…", "releasedAt": "…" } }
+  "lock": { "requestedAt": "…", "acquiredAt": "…", "releasedAt": "…" },
+  "manifest": { "path": "…/state/manifests/wx-demos-03/<slug>.json", "fingerprint": "…", "committed": true } }
 ```
 
 `url` is the raw shard path (assets referenced from `/` only resolve through
@@ -267,11 +275,14 @@ base64 contents + extension, 32 hex; `blake3-wasm` is a dependency for this)
 → choose the shard (existing placement wins; otherwise fewest files, skipping
 any shard that would pass 18,000 files) → Pages direct upload of this slug
 only (upload JWT → check-missing → upload missing → upsert-hashes) → take
-the shard lease (retried with backoff up to ~5 min) → merge the stored shard
-manifest (this slug's `/<slug>/…` entries replaced, stale ones dropped) →
-create the deployment from it → wait (≤60 s) until the new deployment URL
-serves → write manifest rows + placement + the shard's deployment URL in one
-D1 transaction guarded by the lease → release. `lock` timestamps show when
+the shard lease (retried with backoff up to ~5 min) → load the local
+manifest of every other slug placed on the shard and verify it against D1
+(fingerprint + `updated_at`; any missing/stale one aborts with
+`SHARD_STATE_MISMATCH` before deploying) → merge this slug's new files →
+create the deployment → wait (≤60 s) until the new deployment URL serves →
+write placement (+ fingerprint) + the shard's deployment URL (2 rows) in one
+D1 transaction guarded by the lease → write and commit
+`state/manifests/<shard>/<slug>.json` → release. `lock` timestamps show when
 the lease was requested, acquired and released (a concurrent deploy to the
 same shard acquires only after the other released).
 
@@ -281,8 +292,9 @@ same shard acquires only after the other released).
 node bin/cloudflare-pages-deploy.js delete --slug <slug> --sharded --json
 ```
 
-Redeploys the slug's shard without `/<slug>/…` and drops its manifest rows
-and placement. Unknown slug → `PLACEMENT_NOT_FOUND`.
+Verifies the other slugs' manifests like a deploy, redeploys the slug's
+shard without `/<slug>/…`, drops its placement and removes (and commits the
+removal of) its manifest file. Unknown slug → `PLACEMENT_NOT_FOUND`.
 
 #### Error codes (sharded)
 
@@ -294,6 +306,7 @@ and placement. Unknown slug → `PLACEMENT_NOT_FOUND`.
 | `SHARD_LOCK_LOST` | The lease was taken over before the D1 write; nothing was recorded — redeploy |
 | `PLACEMENT_CONFLICT` | A concurrent first deploy of the same slug placed it on another shard — rerun |
 | `PLACEMENT_NOT_FOUND` | `delete --sharded` for a slug with no placement |
+| `SHARD_STATE_MISMATCH` | Another demo on the shard has a missing/stale local manifest (lists each); nothing was deployed — rebuild + redeploy the listed demo(s), never hand-edit |
 | `SHARD_SUBDOMAIN_MISMATCH` | A shard project is not served at `<name>.pages.dev` |
 | `FILE_TOO_LARGE` | A file is over Pages' 25 MiB limit |
 

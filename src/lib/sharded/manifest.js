@@ -21,21 +21,3 @@ export function withoutSlug(manifest, slug) {
 export function mergeSlugManifest(stored, slug, slugManifest) {
   return { ...withoutSlug(stored, slug), ...slugManifest };
 }
-
-/**
- * The `demo_files` rows a deploy must touch: stored `/<slug>/…` paths the new
- * build dropped, and `[path, hash]` entries that are new or whose hash changed.
- * Unchanged entries appear in neither, so a no-op redeploy writes no rows.
- */
-export function diffSlugManifest(stored, slug, slugManifest) {
-  const previous = slugManifestOf(stored, slug);
-  return {
-    deletes: Object.keys(previous).filter((path) => !(path in slugManifest)),
-    upserts: Object.entries(slugManifest).filter(([path, hash]) => previous[path] !== hash),
-  };
-}
-
-function slugManifestOf(manifest, slug) {
-  const prefix = slugPrefix(slug);
-  return Object.fromEntries(Object.entries(manifest).filter(([path]) => path.startsWith(prefix)));
-}

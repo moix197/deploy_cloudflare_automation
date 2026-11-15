@@ -59,7 +59,7 @@ export function resolveAuth(overrides = {}, { env = process.env, envFile = readE
 
 /**
  * Resolves the D1 database holding the sharded-hosting tables
- * (`demo_placements`, `demo_files`, `shard_locks`; schema owned by
+ * (`demo_placements`, `shard_deployments`, `shard_locks`; schema owned by
  * factory-cli's migrations) with the same precedence as the credentials:
  * explicit arg → package .env → process.env (`DEMOS_D1_DATABASE_ID`).
  */

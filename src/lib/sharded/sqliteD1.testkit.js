@@ -1,12 +1,12 @@
 // Tests only: the D1 `{query, batch}` executor over node:sqlite in memory.
-// The schema is a copy of factory-cli migrations/d1/0008_demo_shards.sql and
-// 0009_shard_deployments.sql; factory-cli owns it in production.
+// The schema is a copy of factory-cli migrations/d1/0008_demo_shards.sql,
+// 0009_shard_deployments.sql and 0014_demo_manifest_fingerprints.sql (minus
+// demo_files, which nothing reads any more); factory-cli owns it in production.
 import { DatabaseSync } from 'node:sqlite';
 
 const SCHEMA = `
-CREATE TABLE demo_placements (slug TEXT PRIMARY KEY, shard TEXT NOT NULL, lead_id INTEGER, file_count INTEGER NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE demo_placements (slug TEXT PRIMARY KEY, shard TEXT NOT NULL, lead_id INTEGER, file_count INTEGER NOT NULL, updated_at TEXT NOT NULL, fingerprint TEXT);
 CREATE INDEX idx_demo_placements_shard ON demo_placements(shard);
-CREATE TABLE demo_files (shard TEXT NOT NULL, path TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY (shard, path));
 CREATE TABLE shard_locks (shard TEXT PRIMARY KEY, holder TEXT NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE shard_deployments (shard TEXT PRIMARY KEY, url TEXT NOT NULL, updated_at TEXT NOT NULL);
 `;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { diffSlugManifest, mergeSlugManifest, toSlugManifest, withoutSlug } from './manifest.js';
+import { mergeSlugManifest, toSlugManifest, withoutSlug } from './manifest.js';
 
 const stored = {
   '/demo/index.html': 'old-home',
@@ -37,22 +37,4 @@ test('withoutSlug removes only that slug, not a slug sharing its prefix', () => 
     '/other/index.html': 'other',
   });
   assert.deepEqual(withoutSlug(stored, 'absent'), stored);
-});
-
-test('diff of an unchanged redeploy touches no rows', () => {
-  const same = { '/demo/index.html': 'old-home', '/demo/stale.html': 'gone-in-new-build' };
-  assert.deepEqual(diffSlugManifest(stored, 'demo', same), { deletes: [], upserts: [] });
-});
-
-test('diff deletes dropped paths, upserts new and changed ones, ignores other demos', () => {
-  const diff = diffSlugManifest(stored, 'demo', { '/demo/index.html': 'new-home', '/demo/new.css': 'css' });
-  assert.deepEqual(diff, {
-    deletes: ['/demo/stale.html'],
-    upserts: [['/demo/index.html', 'new-home'], ['/demo/new.css', 'css']],
-  });
-});
-
-test('diff of a first deploy upserts every entry', () => {
-  const slugManifest = { '/fresh/index.html': 'h1', '/fresh/a.css': 'h2' };
-  assert.deepEqual(diffSlugManifest(stored, 'fresh', slugManifest), { deletes: [], upserts: Object.entries(slugManifest) });
 });

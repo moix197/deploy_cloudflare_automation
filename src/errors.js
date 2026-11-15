@@ -192,3 +192,14 @@ export class CloudflareResponseParseError extends CliError {
     this.status = status;
   }
 }
+
+export class ShardStateMismatchError extends CliError {
+  constructor(shard, problems) {
+    super(
+      `Refusing to deploy shard "${shard}": local manifests do not match D1 (${problems.join('; ')}). Rebuild + redeploy each listed demo from a machine whose state/manifests is current — never deploy a shard from stale state`,
+      'SHARD_STATE_MISMATCH',
+    );
+    this.shard = shard;
+    this.problems = problems;
+  }
+}

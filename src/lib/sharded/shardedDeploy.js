@@ -7,13 +7,21 @@ import { ensureProject } from '../ensureProject.js';
 import { validateDir, validateSlug } from '../validate.js';
 import { walkAssets } from './assets.js';
 import { createD1Executor } from './d1.js';
-import { mergeSlugManifest, toSlugManifest, withoutSlug } from './manifest.js';
+import { mergeSlugManifest, toSlugManifest } from './manifest.js';
+import {
+  commitManifests,
+  DEFAULT_MANIFESTS_DIR,
+  loadShardManifest,
+  removeManifestRecord,
+  toManifestRecord,
+  writeManifestRecord,
+} from './manifestStore.js';
 import { createDeployment, uploadMissingAssets, upsertManifestHashes, waitUntilServing } from './pagesDirectUpload.js';
 import {
   commitUnderLease,
   getPlacement,
   readShardLoads,
-  readShardManifest,
+  readShardPlacements,
   slugRemoveStatements,
   slugWriteStatements,
 } from './placementStore.js';
@@ -25,9 +33,10 @@ function noop() {}
 const isoNow = () => new Date().toISOString();
 
 /**
- * Credentials, the D1 executor and the Cloudflare client shared by every
- * sharded operation. `db`/`cloudflareFetchFn`/`resolveAuthFn`/`lockOptions`/
- * `waitUntilServingFn` are injectable for tests; real callers never pass them.
+ * Credentials, the D1 executor, the Cloudflare client and the local manifest
+ * store shared by every sharded operation. `db`/`cloudflareFetchFn`/
+ * `resolveAuthFn`/`lockOptions`/`waitUntilServingFn`/`manifestsDir`/
+ * `commitManifestsFn` are injectable for tests; real callers never pass them.
  */
 function shardedContext({
   apiToken,
@@ -38,10 +47,17 @@ function shardedContext({
   resolveAuthFn = resolveAuth,
   lockOptions,
   waitUntilServingFn = waitUntilServing,
+  manifestsDir = DEFAULT_MANIFESTS_DIR,
+  commitManifestsFn = commitManifests,
 }) {
   const auth = resolveAuthFn({ apiToken, accountId });
   const executor = db ?? createD1Executor({ ...auth, databaseId: resolveDemosDatabaseId(databaseId), cloudflareFetchFn });
-  return { ...auth, db: executor, cloudflareFetchFn, lockOptions, waitUntilServingFn };
+  return { ...auth, db: executor, cloudflareFetchFn, lockOptions, waitUntilServingFn, manifestsDir, commitManifestsFn };
+}
+
+/** Every other slug's live files on the lease's shard, verified against D1 (throws SHARD_STATE_MISMATCH). */
+async function loadOtherSlugs(ctx, lease, slug) {
+  return loadShardManifest(ctx.manifestsDir, lease.shard, await readShardPlacements(ctx.db, lease.shard), slug);
 }
 
 async function pickShard(db, slug, fileCount) {
@@ -85,23 +101,34 @@ function probePath(manifest) {
   return first ? encodeURI(first) : '/';
 }
 
+/**
+ * D1 first: a lost lease records nothing, and a D1 row whose file never got
+ * written is caught as a fingerprint mismatch by the shard's next deploy.
+ */
+async function recordLiveManifest(ctx, lease, record) {
+  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, record }));
+  const path = writeManifestRecord(ctx.manifestsDir, record);
+  const committed = ctx.commitManifestsFn(ctx.manifestsDir, `Manifest: ${record.slug} live on ${record.shard} (${record.fileCount} files)`);
+  return { path, fingerprint: record.fingerprint, committed };
+}
+
 async function publishSlug(ctx, lease, { slug, leadId, slugManifest }) {
   await assertPlacementOn(ctx.db, slug, lease.shard);
-  const storedManifest = await readShardManifest(ctx.db, lease.shard);
-  const merged = mergeSlugManifest(storedManifest, slug, slugManifest);
+  const merged = mergeSlugManifest(await loadOtherSlugs(ctx, lease, slug), slug, slugManifest);
   assertWithinPagesLimit(lease.shard, merged);
   const deployment = await publishManifest(ctx, lease, merged);
-  const updatedAt = new Date().toISOString();
-  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, slug, leadId, storedManifest, slugManifest, deploymentUrl: deployment.url, updatedAt }));
-  return deployment;
+  const record = toManifestRecord({ slug, shard: lease.shard, leadId, files: slugManifest, deployedAt: isoNow(), deploymentUrl: deployment.url });
+  const manifest = await recordLiveManifest(ctx, lease, record);
+  return { deployment, manifest };
 }
 
 /**
  * Publishes `dir` as `/<slug>/` inside one of the shared shard projects
  * without needing any other demo's files locally: upload this slug's
- * missing assets, then — under the shard's lease — merge its entries into
- * the shard manifest stored in D1, create the deployment from it and record
- * manifest + placement in one D1 transaction.
+ * missing assets, then, under the shard's lease, merge its entries with the
+ * other demos' local manifests (each verified against its D1 fingerprint),
+ * create the deployment, record placement + fingerprint in one D1
+ * transaction and write this slug's manifest file.
  */
 export async function deploySharded({ dir, slug, leadId = null, onProgress = noop, ...options } = {}) {
   validateSlug(slug);
@@ -117,7 +144,7 @@ export async function deploySharded({ dir, slug, leadId = null, onProgress = noo
   const slugManifest = toSlugManifest(slug, assets);
   // Timestamps let concurrent same-shard deploys show they ran one after the other.
   const lock = { requestedAt: isoNow() };
-  const deployment = await withShardLock(ctx.db, shard, (lease) => {
+  const { deployment, manifest } = await withShardLock(ctx.db, shard, (lease) => {
     lock.acquiredAt = isoNow();
     return publishSlug(ctx, lease, { slug, leadId, slugManifest });
   }, ctx.lockOptions);
@@ -131,17 +158,19 @@ export async function deploySharded({ dir, slug, leadId = null, onProgress = noo
     files: assets.length,
     uploaded,
     lock,
+    manifest,
   };
 }
 
 async function unpublishSlug(ctx, lease, slug) {
-  const remaining = withoutSlug(await readShardManifest(ctx.db, lease.shard), slug);
+  const remaining = await loadOtherSlugs(ctx, lease, slug);
   const deployment = await publishManifest(ctx, lease, remaining);
-  const updatedAt = new Date().toISOString();
-  await commitUnderLease(ctx.db, lease, slugRemoveStatements({ lease, slug, deploymentUrl: deployment.url, updatedAt }));
+  await commitUnderLease(ctx.db, lease, slugRemoveStatements({ lease, slug, deploymentUrl: deployment.url, updatedAt: isoNow() }));
+  removeManifestRecord(ctx.manifestsDir, lease.shard, slug);
+  ctx.commitManifestsFn(ctx.manifestsDir, `Manifest: ${slug} removed from ${lease.shard}`);
 }
 
-/** Takes `/<slug>/` out of its shard: redeploys the shard without it and drops its manifest rows and placement. */
+/** Takes `/<slug>/` out of its shard: redeploys the shard without it and drops its placement and manifest file. */
 export async function removeSharded({ slug, ...options } = {}) {
   validateSlug(slug);
   const ctx = shardedContext(options);

@@ -1,4 +1,4 @@
-# Sharded demo hosting: 10 shared Pages projects + D1 manifest + routing Worker
+# Sharded demo hosting: 10 shared Pages projects + local manifests + D1 registry + routing Worker
 
 ## Context
 
@@ -17,9 +17,18 @@ Opt-in `--sharded` mode (default mode untouched):
   `https://<id8>.<shard>.pages.dev/<slug>/…` (D1 `shard_deployments`, migration
   0009), falling back to the `<shard>.pages.dev` alias only when that row is
   missing or invalid.
-- Each shard's manifest is stored in D1 `demo_files` (factory-cli owns the
-  schema, migration 0008), so a deploy uploads and hashes only its own slug
-  and merges into the stored manifest — no other demo's files needed locally.
+- Each live demo's manifest is a file in this repo, committed to git:
+  `state/manifests/<shard>/<slug>.json` = `{slug, shard, leadId, fileCount,
+  fingerprint, deployedAt, deploymentUrl, files: {"/<slug>/<path>": hash}}`
+  (`src/lib/sharded/manifestStore.js`). It is a snapshot of what is LIVE,
+  written only after the deployment and the D1 commit succeeded, then
+  auto-committed (best effort: `git add -A state/manifests` + `git commit --
+  state/manifests` on whatever branch the checkout is on; never pushed; a
+  failed commit does not fail the deploy, the file on disk is what counts).
+  `fingerprint` = sha256 of the sorted `path\thash` lines. D1 is only the
+  registry: `demo_placements` (+ `fingerprint`, migration 0014; `file_count`;
+  `updated_at` = deployed_at), `shard_deployments`, `shard_locks`. A deploy
+  still uploads and hashes only its own slug — no other demo's files needed.
 - Placement: existing placement wins (demos never move); new slugs go to the
   shard with the fewest files under an 18,000 budget (Pages hard limit 20,000,
   headroom for growth on redeploy).
@@ -28,15 +37,30 @@ Opt-in `--sharded` mode (default mode untouched):
   waited for up to ~5 min with backoff). The final D1 write embeds the lease as an `EXISTS`
   guard in every statement and re-reads the holder in the same transaction,
   so a writer that lost its lease records nothing (`SHARD_LOCK_LOST`).
-- Delta writes: a deploy writes only the `demo_files` rows that differ from the
-  shard manifest it read under the same lease (`diffSlugManifest`: chunked
-  `DELETE … path IN (…)` for dropped paths, `INSERT … ON CONFLICT(shard, path)
-  DO UPDATE` for new/changed ones; unchanged files get no statement). Why: D1
-  free tier caps rows written at 100k/day and the old delete-all + reinsert
-  cost ~1,215 rows per deploy (91% of the db's writes, 2026-11-14); a no-op
-  redeploy now writes only its placement + `shard_deployments` rows. Safe
-  because the lease makes the read manifest authoritative until commit.
-  `delete --sharded` still drops every row of the slug.
+- Deploy of slug A to shard S, under S's lease: read S's placements from D1,
+  load every OTHER slug's local manifest and verify it (file present, its
+  files hash to its own `fingerprint`, all paths under `/<slug>/`,
+  `fingerprint` and `deployedAt` equal D1's `fingerprint` and `updated_at`);
+  any problem aborts with `SHARD_STATE_MISMATCH` listing every bad slug,
+  before anything is deployed. Then merge A's new files, create the
+  deployment, commit placement (+ fingerprint) + `shard_deployments` (2 rows,
+  lease-guarded), write A's file. Delete: same verification, redeploy
+  without A, delete its placement, remove its file.
+- Why local files (2026-11-15): D1 free tier caps rows written at 100k/day;
+  `demo_files` cost one row per file (~1,215 rows per deploy before the
+  delta-write fix 5000f03, still hundreds on a rebuild). Now a deploy writes
+  2 registry rows + the lease's own rows (acquire, 4 renewals, release:
+  ~6 single-row writes). The owner is on the free tier for good; paid plans
+  are not an option.
+- Why `updated_at` is checked too: a deploy that did not write this
+  machine's file (another machine, or pre-manifest code during the switch)
+  changes `updated_at` even when it cannot change `fingerprint`.
+- Recovery from `SHARD_STATE_MISMATCH` (owner decision): rebuild + redeploy
+  the affected demo. Never hand-edit a manifest or a fingerprint to make a
+  deploy pass: the shard would be republished without that demo's real
+  files. Caveat: the redeployed demo is excluded from the check, but every
+  other slug on the shard still has to verify, so with two stale demos on one
+  shard neither can be redeployed until one is fixed by hand (owner call).
 - Upload uses the Pages direct-upload REST flow wrangler uses internally
   (upload-token JWT → check-missing → upload → upsert-hashes → multipart
   deployment). Hashes and content types must equal wrangler's byte-for-byte;
@@ -68,9 +92,14 @@ Opt-in `--sharded` mode (default mode untouched):
 
 - A demo's root `_headers`/`_redirects`/`functions` are ignored (they would
   only apply at the shard root).
-- Uploaded assets are referenced only by the latest shard deployment; a
-  manifest row lost from D1 means that file disappears on the next deploy of
-  any demo on that shard.
+- Uploaded assets are referenced only by the latest shard deployment, so
+  the local manifests are the only record of what each shard serves. Deploys
+  must run from this checkout (`state/manifests` resolved from the package
+  root, never cwd); another machine or worktree without current files gets
+  `SHARD_STATE_MISMATCH`, never a silent drop.
+- `demo_files` (0008) is no longer read or written. Its rows were exported
+  once with `scripts/export-demo-files.js` (2026-11-15); factory-cli
+  `0015_drop_demo_files.sql` drops it after the owner verifies (pending).
 - The Worker trusts `demo_placements.shard` only if it matches `wx-demos-NN`,
   and a `shard_deployments.url` only if it is `https://<8 hex>.<that shard>.pages.dev`.
 - An unknown or removed slug gets a branded 404 page (`worker/src/notFound.js`).
@@ -94,6 +123,6 @@ Opt-in `--sharded` mode (default mode untouched):
 - Remove: `delete --slug <s> --sharded --json` (shard redeployed without the slug, placement dropped, Worker 404s within seconds). Plain `delete --slug <s>` is for legacy per-demo projects.
 - Limits: 18,000 files per shard placement budget, 20,000 Pages cap, 25 MiB per file; `SHARDS_FULL` means add shards.
 - Tokens: needs Pages Edit + D1 Edit (factory passes its own as `DEPLOYER_CLOUDFLARE_*`); deploying the Worker needs Workers Scripts Edit + zone Workers Routes Edit + D1. Shared `.env` stays untouched.
-- Rollback: per demo, deploy it without `--sharded` (legacy project) then `delete --sharded` the placement; Worker via `wrangler rollback` or redeploying an earlier `worker/`. Migrations 0008/0009 only add tables.
+- Rollback: per demo, deploy it without `--sharded` (legacy project) then `delete --sharded` the placement; Worker via `wrangler rollback` or redeploying an earlier `worker/`. Migrations 0008/0009 only add tables, 0014 only adds a column.
 - Worker var `PASSTHROUGH_SUBDOMAINS` lists real subdomains (add one with every new DNS record and redeploy the Worker), or they get the branded 404.
 - Old per-demo projects were deleted except `cucchiettiboats` and `rosarioagroindustrial` (still `*.pages.dev` until redeployed sharded).
