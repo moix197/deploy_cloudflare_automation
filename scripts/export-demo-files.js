@@ -63,12 +63,12 @@ async function main() {
   for (const shard of new Set(placements.map((p) => p.shard))) filesByShard[shard] = groupBySlug(await readShardFiles(db, shard));
 
   const records = toRecords(placements, deployments, filesByShard);
-  for (const record of records) writeManifestRecord(DEFAULT_MANIFESTS_DIR, record);
   const results = await db.batch(records.map((record) => ({
     sql: 'UPDATE demo_placements SET fingerprint = ? WHERE slug = ? AND updated_at = ? RETURNING slug',
     params: [record.fingerprint, record.slug, record.deployedAt],
   })));
   const raced = records.filter((_, i) => results[i].length === 0).map((r) => r.slug);
+  for (const record of records.filter((r) => !raced.includes(r.slug))) writeManifestRecord(DEFAULT_MANIFESTS_DIR, record);
   const countMismatch = records.filter((r, i) => r.fileCount !== placements[i].file_count).map((r) => `${r.slug} (${r.fileCount} files, placement says ${placements[i].file_count})`);
   const committed = commitManifests(DEFAULT_MANIFESTS_DIR, `Manifest: export ${records.length} live demos from D1 demo_files`);
   console.log(JSON.stringify({ exported: records.length, files: records.reduce((n, r) => n + r.fileCount, 0), raced, countMismatch, orphans: orphanSlugs(placements, filesByShard), committed }, null, 2));
