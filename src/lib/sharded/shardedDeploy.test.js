@@ -208,3 +208,31 @@ test('the lease is renewed after createDeployment too, and a lease lost during i
     await assert.rejects(deploySharded({ dir: a, slug: 'alpha', db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn, lockOptions }), ShardLockLostError);
     assert.deepEqual(await db.query('SELECT * FROM demo_placements'), []);
   }));
+
+test('redeploys write only the demo_files delta: none when unchanged, chunked deletes and upserts otherwise', async () => {
+  const files = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`p${i}.html`, `page ${i}`]));
+  await withSites({ a: files }, async ({ a }) => {
+    const db = createSqliteD1();
+    const fileWrites = [];
+    const batch = db.batch;
+    db.batch = (statements) => {
+      fileWrites.push(statements.filter((s) => /^(INSERT INTO|DELETE FROM) demo_files/.test(s.sql)).length);
+      return batch(statements);
+    };
+    const pages = fakePages();
+    const options = { db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn };
+
+    await deploySharded({ dir: a, slug: 'alpha', ...options });
+    assert.equal(fileWrites.at(-2), 3); // first deploy inserts all 100 rows in 48-row chunks (last batch is the lock release)
+    await deploySharded({ dir: a, slug: 'alpha', ...options });
+    assert.equal(fileWrites.at(-2), 0);
+
+    for (let i = 1; i < 100; i += 1) unlinkSync(join(a, `p${i}.html`));
+    writeFileSync(join(a, 'p0.html'), 'page 0 v2');
+    await deploySharded({ dir: a, slug: 'alpha', ...options });
+    assert.equal(fileWrites.at(-2), 3); // 99 deletes in 96-path chunks + 1 upsert
+    const rows = await db.query('SELECT path, hash FROM demo_files');
+    assert.deepEqual(Object.fromEntries(rows.map((r) => [r.path, r.hash])), pages.deployments.at(-1).manifest);
+    assert.deepEqual(Object.keys(pages.deployments.at(-1).manifest), ['/alpha/p0.html']);
+  });
+});

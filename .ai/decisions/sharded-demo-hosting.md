@@ -28,6 +28,15 @@ Opt-in `--sharded` mode (default mode untouched):
   waited for up to ~5 min with backoff). The final D1 write embeds the lease as an `EXISTS`
   guard in every statement and re-reads the holder in the same transaction,
   so a writer that lost its lease records nothing (`SHARD_LOCK_LOST`).
+- Delta writes: a deploy writes only the `demo_files` rows that differ from the
+  shard manifest it read under the same lease (`diffSlugManifest`: chunked
+  `DELETE … path IN (…)` for dropped paths, `INSERT … ON CONFLICT(shard, path)
+  DO UPDATE` for new/changed ones; unchanged files get no statement). Why: D1
+  free tier caps rows written at 100k/day and the old delete-all + reinsert
+  cost ~1,215 rows per deploy (91% of the db's writes, 2026-11-14); a no-op
+  redeploy now writes only its placement + `shard_deployments` rows. Safe
+  because the lease makes the read manifest authoritative until commit.
+  `delete --sharded` still drops every row of the slug.
 - Upload uses the Pages direct-upload REST flow wrangler uses internally
   (upload-token JWT → check-missing → upload → upsert-hashes → multipart
   deployment). Hashes and content types must equal wrangler's byte-for-byte;

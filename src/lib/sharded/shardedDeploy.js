@@ -87,11 +87,12 @@ function probePath(manifest) {
 
 async function publishSlug(ctx, lease, { slug, leadId, slugManifest }) {
   await assertPlacementOn(ctx.db, slug, lease.shard);
-  const merged = mergeSlugManifest(await readShardManifest(ctx.db, lease.shard), slug, slugManifest);
+  const storedManifest = await readShardManifest(ctx.db, lease.shard);
+  const merged = mergeSlugManifest(storedManifest, slug, slugManifest);
   assertWithinPagesLimit(lease.shard, merged);
   const deployment = await publishManifest(ctx, lease, merged);
   const updatedAt = new Date().toISOString();
-  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, slug, leadId, slugManifest, deploymentUrl: deployment.url, updatedAt }));
+  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, slug, leadId, storedManifest, slugManifest, deploymentUrl: deployment.url, updatedAt }));
   return deployment;
 }
 

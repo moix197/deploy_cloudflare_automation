@@ -1,9 +1,10 @@
 import { ShardLockLostError } from '../../errors.js';
-import { slugPrefix } from './manifest.js';
+import { diffSlugManifest, slugPrefix } from './manifest.js';
 
 const MANIFEST_PAGE_ROWS = 5_000;
-// D1 allows 100 bound parameters per statement: 1 shard + 2 per row + the 2-param lease guard.
-const ROWS_PER_INSERT = 48;
+// D1 allows 100 bound parameters per statement: 1 shard + 2 per row (1 per deleted path) + the 2-param lease guard.
+const ROWS_PER_UPSERT = 48;
+const PATHS_PER_DELETE = 96;
 
 export async function getPlacement(db, slug) {
   const [row] = await db.query('SELECT slug, shard, lead_id, file_count FROM demo_placements WHERE slug = ?', [slug]);
@@ -39,10 +40,18 @@ function deleteSlugFiles(shard, slug, guard) {
   };
 }
 
-function insertFiles(shard, entries, guard) {
+function deleteFiles(shard, paths, guard) {
+  return {
+    sql: `DELETE FROM demo_files WHERE shard = ? AND path IN (${paths.map(() => '?').join(', ')}) AND ${guard.sql}`,
+    params: [shard, ...paths, ...guard.params],
+  };
+}
+
+function upsertFiles(shard, entries, guard) {
   const values = entries.map(() => '(?, ?)').join(', ');
   return {
-    sql: `INSERT INTO demo_files (shard, path, hash) SELECT ?, column1, column2 FROM (VALUES ${values}) WHERE ${guard.sql}`,
+    sql: `INSERT INTO demo_files (shard, path, hash) SELECT ?, column1, column2 FROM (VALUES ${values}) WHERE ${guard.sql}
+      ON CONFLICT(shard, path) DO UPDATE SET hash = excluded.hash`,
     params: [shard, ...entries.flat(), ...guard.params],
   };
 }
@@ -69,13 +78,17 @@ function upsertShardDeployment({ shard, deploymentUrl, updatedAt }, guard) {
   };
 }
 
-/** Statements replacing the slug's manifest rows, placement and the shard's deployment URL; every one is a no-op unless the lease is still ours. */
-export function slugWriteStatements({ lease, slug, leadId, slugManifest, deploymentUrl, updatedAt }) {
-  const entries = Object.entries(slugManifest);
+/**
+ * Statements syncing the slug's manifest rows (only the delta against `storedManifest`,
+ * the shard manifest read under this lease — D1 bills every row written), placement and
+ * the shard's deployment URL; every one is a no-op unless the lease is still ours.
+ */
+export function slugWriteStatements({ lease, slug, leadId, storedManifest, slugManifest, deploymentUrl, updatedAt }) {
+  const { deletes, upserts } = diffSlugManifest(storedManifest, slug, slugManifest);
   return [
-    deleteSlugFiles(lease.shard, slug, lease.guard),
-    ...chunk(entries, ROWS_PER_INSERT).map((rows) => insertFiles(lease.shard, rows, lease.guard)),
-    upsertPlacement({ shard: lease.shard, slug, leadId, fileCount: entries.length, updatedAt }, lease.guard),
+    ...chunk(deletes, PATHS_PER_DELETE).map((paths) => deleteFiles(lease.shard, paths, lease.guard)),
+    ...chunk(upserts, ROWS_PER_UPSERT).map((rows) => upsertFiles(lease.shard, rows, lease.guard)),
+    upsertPlacement({ shard: lease.shard, slug, leadId, fileCount: Object.keys(slugManifest).length, updatedAt }, lease.guard),
     upsertShardDeployment({ shard: lease.shard, deploymentUrl, updatedAt }, lease.guard),
   ];
 }
