@@ -1,7 +1,7 @@
 // Tests only: the D1 `{query, batch}` executor over node:sqlite in memory.
 // The schema is a copy of factory-cli migrations/d1/0008_demo_shards.sql,
-// 0009_shard_deployments.sql and 0014_demo_manifest_fingerprints.sql (minus
-// demo_files, which nothing reads any more); factory-cli owns it in production.
+// 0009_shard_deployments.sql and 0014_demo_manifest_fingerprints.sql; factory-cli
+// owns it in production.
 import { DatabaseSync } from 'node:sqlite';
 
 const SCHEMA = `

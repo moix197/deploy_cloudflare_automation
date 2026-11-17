@@ -97,11 +97,11 @@ Opt-in `--sharded` mode (default mode untouched):
   must run from this checkout (`state/manifests` resolved from the package
   root, never cwd); another machine or worktree without current files gets
   `SHARD_STATE_MISMATCH`, never a silent drop.
-- `demo_files` (0008) is no longer read or written. Its rows are exported
-  once with `scripts/export-demo-files.js --d1-database <id>` (first run hit
-  the D1 daily write cap on 2026-11-15; until it succeeds every shard has a
-  NULL fingerprint, so every sharded deploy aborts safely); factory-cli
-  `0015_drop_demo_files.sql` drops it after the owner verifies (pending).
+- D1 is only the registry (`demo_placements`, `shard_locks`,
+  `shard_deployments`). `demo_files` (0008) is unused by all code (the
+  one-time export to local manifests ran 2026-11-15 and was removed); it stays
+  in prod until the owner applies factory-cli `0015_drop_demo_files.sql`,
+  which is safe to apply any time.
 - The Worker trusts `demo_placements.shard` only if it matches `wx-demos-NN`,
   and a `shard_deployments.url` only if it is `https://<8 hex>.<that shard>.pages.dev`.
 - An unknown or removed slug gets a branded 404 page (`worker/src/notFound.js`).
