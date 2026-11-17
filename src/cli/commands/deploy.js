@@ -2,8 +2,14 @@ import { deploy } from '../../lib/deploy.js';
 import { deploySharded } from '../../lib/sharded/shardedDeploy.js';
 import { CliError } from '../../errors.js';
 
+// `--skip-stale=a,b`: the only stale neighbours this run may take offline.
+export function parseSkipStale(args) {
+  const flag = args.find((arg) => arg.startsWith('--skip-stale='));
+  return flag ? flag.slice('--skip-stale='.length).split(',').map((slug) => slug.trim()).filter(Boolean) : [];
+}
+
 function parseDeployArgs(args) {
-  const options = { sharded: args.includes('--sharded'), skipStale: args.includes('--skip-stale') };
+  const options = { sharded: args.includes('--sharded'), skipStale: parseSkipStale(args) };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '--dir') options.dir = args[i + 1];
     if (args[i] === '--slug') options.slug = args[i + 1];

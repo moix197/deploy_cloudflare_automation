@@ -63,8 +63,11 @@ Opt-in `--sharded` mode (default mode untouched):
   other slug on the shard still has to verify, so with two stale demos on one
   shard neither could be redeployed (deadlock).
 - `--skip-stale` (owner decision 2026-11-17, opt-in; default unchanged): under
-  the same lease, stale/missing neighbours are left out of the deployment
-  instead of aborting. Pages deploys are full replacements, so they go
+  the same lease, stale/missing neighbours named in
+  `--skip-stale=<slug,...>` are left out of the deployment instead of
+  aborting; a stale neighbour not in the list still aborts (listing only
+  those), so a slug that went stale after the caller judged the first error
+  is never taken offline unseen. No bare flag form. Pages deploys are full replacements, so they go
   offline (Worker 404). Their placement is kept (same shard, file budget
   reserved) and, in the same lease-guarded D1 transaction, their
   `fingerprint` is set to the sentinel `'offline'` (`OFFLINE_FINGERPRINT`);

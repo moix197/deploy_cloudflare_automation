@@ -1,9 +1,10 @@
 import { deleteProject } from '../../lib/deleteProject.js';
 import { removeSharded } from '../../lib/sharded/shardedDeploy.js';
 import { CliError } from '../../errors.js';
+import { parseSkipStale } from './deploy.js';
 
 function parseDeleteArgs(args) {
-  const options = { sharded: args.includes('--sharded'), skipStale: args.includes('--skip-stale') };
+  const options = { sharded: args.includes('--sharded'), skipStale: parseSkipStale(args) };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '--slug') options.slug = args[i + 1];
     if (args[i] === '--d1-database') options.databaseId = args[i + 1];

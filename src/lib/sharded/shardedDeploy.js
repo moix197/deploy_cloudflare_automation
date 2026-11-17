@@ -57,12 +57,13 @@ function shardedContext({
 
 /**
  * Every other slug's live files on the lease's shard, verified against D1. A missing or stale one
- * throws SHARD_STATE_MISMATCH, unless `skipStale`: then it is left out of the deployment (taken
- * offline) and returned in `skipped`.
+ * named in `skipStale` (slugs the caller already judged) is left out of the deployment (taken
+ * offline) and returned in `skipped`; any other stale one throws SHARD_STATE_MISMATCH listing those.
  */
-async function loadOtherSlugs(ctx, lease, slug, { skipStale = false } = {}) {
+async function loadOtherSlugs(ctx, lease, slug, { skipStale = [] } = {}) {
   const { manifest, stale } = collectShardManifest(ctx.manifestsDir, lease.shard, await readShardPlacements(ctx.db, lease.shard), slug);
-  if (stale.length && !skipStale) throw new ShardStateMismatchError(lease.shard, stale);
+  const blocking = stale.filter((entry) => !skipStale.includes(entry.slug));
+  if (blocking.length) throw new ShardStateMismatchError(lease.shard, blocking);
   return { manifest, skipped: stale };
 }
 
@@ -135,10 +136,10 @@ async function publishSlug(ctx, lease, { slug, leadId, slugManifest, skipStale }
  * missing assets, then, under the shard's lease, merge its entries with the
  * other demos' local manifests (each verified against its D1 fingerprint),
  * create the deployment, record placement + fingerprint in one D1
- * transaction and write this slug's manifest file. `skipStale` leaves
- * neighbours with a missing/stale manifest out (offline) instead of aborting.
+ * transaction and write this slug's manifest file. `skipStale` (slug list)
+ * leaves those neighbours out (offline) if stale instead of aborting.
  */
-export async function deploySharded({ dir, slug, leadId = null, skipStale = false, onProgress = noop, ...options } = {}) {
+export async function deploySharded({ dir, slug, leadId = null, skipStale = [], onProgress = noop, ...options } = {}) {
   validateSlug(slug);
   const absoluteDir = resolvePath(validateDir(dir));
   const ctx = shardedContext(options);
@@ -184,7 +185,7 @@ async function unpublishSlug(ctx, lease, slug, skipStale) {
  * Takes `/<slug>/` out of its shard: redeploys the shard without it and drops its placement and
  * manifest file. `skipStale` as in deploySharded.
  */
-export async function removeSharded({ slug, skipStale = false, ...options } = {}) {
+export async function removeSharded({ slug, skipStale = [], ...options } = {}) {
   validateSlug(slug);
   const ctx = shardedContext(options);
   const placement = await getPlacement(ctx.db, slug);

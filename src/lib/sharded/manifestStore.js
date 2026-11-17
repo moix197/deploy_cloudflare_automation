@@ -64,7 +64,7 @@ export function manifestProblem(record, placement) {
   return null;
 }
 
-// D1 fingerprint of a slug a `skipStale` deploy left out of its shard: still placed (keeps its slot and
+// D1 fingerprint of a slug a deploy left out (`skipStale`) of its shard: still placed (keeps its slot and
 // file budget) but not served, so it is neither a neighbour to verify nor a reason to abort.
 export const OFFLINE_FINGERPRINT = 'offline';
 

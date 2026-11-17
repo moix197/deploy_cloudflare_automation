@@ -315,7 +315,7 @@ test('skipStale with one stale neighbour deploys without it, keeps its placement
     const updatedAt = (await db.query("SELECT updated_at FROM demo_placements WHERE slug = 'beta'"))[0].updated_at;
     unlinkSync(manifestFilePath(state.manifestsDir, 'wx-demos-01', 'beta'));
 
-    const result = await deploySharded({ dir: sites.a, slug: 'alpha', skipStale: true, ...options });
+    const result = await deploySharded({ dir: sites.a, slug: 'alpha', skipStale: ['beta'], ...options });
     assert.deepEqual(result.skipped, [{ slug: 'beta', leadId: null, problem: 'no local manifest' }]);
     assert.deepEqual(Object.keys(pages.deployments.at(-1).manifest).sort(), ['/alpha/index.html', '/gamma/index.html']);
     assert.deepEqual(await db.query("SELECT shard, fingerprint, updated_at FROM demo_placements WHERE slug = 'beta'"), [{ shard: 'wx-demos-01', fingerprint: 'offline', updated_at: updatedAt }]);
@@ -335,7 +335,7 @@ test('skipStale resolves the two-stale-slugs deadlock; each skipped slug redeplo
     await assert.rejects(deploySharded({ dir: sites.a, slug: 'alpha', ...options }), ShardStateMismatchError);
     await assert.rejects(deploySharded({ dir: sites.c, slug: 'gamma', ...options }), ShardStateMismatchError);
 
-    const first = await deploySharded({ dir: sites.a, slug: 'alpha', skipStale: true, ...options });
+    const first = await deploySharded({ dir: sites.a, slug: 'alpha', skipStale: ['gamma'], ...options });
     assert.deepEqual(first.skipped.map((s) => s.slug), ['gamma']);
     assert.equal(await fingerprintOfSlug(db, 'gamma'), 'offline');
 
@@ -353,7 +353,7 @@ test('remove with skipStale takes the stale neighbour offline instead of refusin
     const { db } = await twoDemosOnOneShard(sites, state);
     await db.query("UPDATE demo_placements SET fingerprint = 'other' WHERE slug = 'beta'");
     const pages = fakePages();
-    const result = await removeSharded({ slug: 'alpha', skipStale: true, db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn, ...state });
+    const result = await removeSharded({ slug: 'alpha', skipStale: ['beta'], db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn, ...state });
     assert.deepEqual(result.skipped, [{ slug: 'beta', leadId: null, problem: 'fingerprint differs from D1' }]);
     assert.deepEqual(pages.deployments.at(-1).manifest, {});
     assert.equal(await fingerprintOfSlug(db, 'beta'), 'offline');
@@ -371,3 +371,31 @@ test('SHARD_STATE_MISMATCH carries the stale slugs with their lead ids', () =>
       return true;
     });
   }));
+
+test('skipStale takes only the listed slugs offline: a neighbour that went stale since aborts the retry', () =>
+  withSites(threeSites, async (sites, state) => {
+    const { db, pages, options } = await threeDemosOnOneShard(sites, state);
+    unlinkSync(manifestFilePath(state.manifestsDir, 'wx-demos-01', 'beta'));
+    await assert.rejects(deploySharded({ dir: sites.a, slug: 'alpha', ...options }), (error) => {
+      assert.deepEqual(error.details.stale.map((s) => s.slug), ['beta']);
+      return true;
+    });
+
+    // Between the attempts gamma goes stale too; the retry was judged on beta only.
+    await db.query("UPDATE demo_placements SET updated_at = '2099-01-01T00:00:00.000Z' WHERE slug = 'gamma'");
+    const before = pages.deployments.length;
+    await assert.rejects(deploySharded({ dir: sites.a, slug: 'alpha', skipStale: ['beta'], ...options }), (error) => {
+      assert.equal(error.code, 'SHARD_STATE_MISMATCH');
+      assert.deepEqual(error.details.stale.map((s) => s.slug), ['gamma']);
+      return true;
+    });
+    assert.equal(pages.deployments.length, before, 'nothing deployed');
+    assert.ok(await fingerprintOfSlug(db, 'beta') !== 'offline', 'beta not marked offline');
+  }));
+
+test('--skip-stale=<slug,...> parses to a slug list; absent means none', async () => {
+  const { parseSkipStale } = await import('../../cli/commands/deploy.js');
+  assert.deepEqual(parseSkipStale(['--sharded', '--skip-stale=beta, gamma']), ['beta', 'gamma']);
+  assert.deepEqual(parseSkipStale(['--sharded']), []);
+  assert.deepEqual(parseSkipStale(['--skip-stale']), []);
+});

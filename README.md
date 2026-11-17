@@ -258,7 +258,7 @@ node bin/cloudflare-pages-deploy.js shards init --json
 ### `deploy --sharded`
 
 ```
-node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug> --sharded [--lead-id <n>] [--d1-database <id>] [--skip-stale] --json
+node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug> --sharded [--lead-id <n>] [--d1-database <id>] [--skip-stale=<slug,...>] --json
 ```
 
 ```json
@@ -268,9 +268,11 @@ node bin/cloudflare-pages-deploy.js deploy --dir <path> --slug <slug> --sharded 
   "skipped": [] }
 ```
 
-`--skip-stale` (opt-in): neighbours whose local manifest is missing/stale are
-left out of the deployment (taken offline) instead of aborting with
-`SHARD_STATE_MISMATCH`; they keep their placement, get D1 `fingerprint =
+`--skip-stale=<slug,...>` (opt-in): those neighbours, if their local manifest
+is missing/stale, are left out of the deployment (taken offline) instead of
+aborting with `SHARD_STATE_MISMATCH` (any other stale neighbour still aborts:
+the list is what the caller judged, so a slug that went stale since is never
+dropped unseen); they keep their placement, get D1 `fingerprint =
 'offline'` (no longer verified, never block a later deploy) and are listed in
 `skipped: [{slug, leadId, problem}]`. Redeploying a skipped slug restores it.
 
@@ -296,7 +298,7 @@ same shard acquires only after the other released).
 ### `delete --sharded`
 
 ```
-node bin/cloudflare-pages-deploy.js delete --slug <slug> --sharded [--skip-stale] --json
+node bin/cloudflare-pages-deploy.js delete --slug <slug> --sharded [--skip-stale=<slug,...>] --json
 ```
 
 Verifies the other slugs' manifests like a deploy, redeploys the slug's
@@ -314,7 +316,7 @@ removal of) its manifest file. Unknown slug → `PLACEMENT_NOT_FOUND`.
 | `SHARD_LOCK_LOST` | The lease was taken over before the D1 write; nothing was recorded — redeploy |
 | `PLACEMENT_CONFLICT` | A concurrent first deploy of the same slug placed it on another shard — rerun |
 | `PLACEMENT_NOT_FOUND` | `delete --sharded` for a slug with no placement |
-| `SHARD_STATE_MISMATCH` | Another demo on the shard has a missing/stale local manifest (lists each; `--json` adds `details: {shard, stale: [{slug, leadId, problem}]}`); nothing was deployed — rebuild + redeploy the listed demo(s), or rerun with `--skip-stale` to take them offline; never hand-edit |
+| `SHARD_STATE_MISMATCH` | Another demo on the shard has a missing/stale local manifest (lists each; `--json` adds `details: {shard, stale: [{slug, leadId, problem}]}`); nothing was deployed — rebuild + redeploy the listed demo(s), or rerun with `--skip-stale=<those slugs>` to take them offline; never hand-edit |
 | `SHARD_SUBDOMAIN_MISMATCH` | A shard project is not served at `<name>.pages.dev` |
 | `FILE_TOO_LARGE` | A file is over Pages' 25 MiB limit |
 
