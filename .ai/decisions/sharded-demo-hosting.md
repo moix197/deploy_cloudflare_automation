@@ -96,6 +96,50 @@ Opt-in `--sharded` mode (default mode untouched):
 - The deployer waits (≤60 s, best effort) until a new deployment URL serves
   before recording it, since it answers 522 for a few seconds.
 
+## Demo-visit tracking (2026-11-17)
+
+Goal: see when a lead opens the demo link from a cold email
+(`https://<slug>.web-express.com.ar/?e=1`). No pixels, open tracking,
+redirects or shorteners: the Worker already sees every request.
+
+- What: one D1 `demo_visits` row per page view (GET, upstream 200
+  `text/html`, or 304 with request `Sec-Fetch-Dest: document`: Pages answers a
+  browser revisit with a bare 304 that has no Content-Type; factory-cli migration 0016): slug, `lead_id` copied from
+  `demo_placements`, `at` (ISO UTC), `source` (`email` iff `e=1`), pathname,
+  `cf.country`, `cf.asn`, `ua_class`, `is_owner`, `visitor_key` =
+  sha256(`VISIT_SALT|ip|UA`)[0..32]. Raw IPs are never stored.
+- D1 budget (100k rows written/day, free tier for good): at most one write per
+  visit, never per asset. Dedupe is a `WHERE NOT EXISTS` inside the INSERT
+  (same slug + visitor_key in the last 30 min), so no extra read round trip.
+- Noise: `ua_class` scanner (mail link scanners and cloud ASNs: Google,
+  Microsoft, Proofpoint, Mimecast, Barracuda, AWS, DigitalOcean, OVH, Hetzner,
+  plus scanner UA tokens) wins over bot (empty UA, bot/crawler/headless/tool/
+  link-preview UAs). Lists in `worker/src/visitor.js`; best-effort only.
+  `asset_loaded` is the second signal: scanners fetch only the HTML. A
+  recorded page view leaves a 2 min Cache API marker; the visitor's first
+  asset in that window deletes it and runs one UPDATE. Assets with no marker
+  never touch D1. The "real visit" rule is applied at query time by the
+  dashboard (factory-cli), not in the Worker.
+- Owner visits: `/__wx-owner?k=<OWNER_LINK_SECRET>` (constant-time compare)
+  sets `wx_owner=<sha256("wx-owner:"+secret)>` for `.web-express.com.ar`
+  (400 days, Secure, HttpOnly, SameSite=Lax); visits with that cookie get
+  `is_owner = 1`. A wrong/missing key is served like any other path (no hint).
+  Rotating the secret logs every device out of owner mode.
+- Safety: tracking runs in `ctx.waitUntil` with errors swallowed; it never
+  changes the response. Missing `VISIT_SALT` → nothing tracked; missing
+  `OWNER_LINK_SECRET` → owner link off. Until migration 0016 is applied the
+  INSERT just fails silently.
+- Setup (secrets, never in `wrangler.toml`):
+  `pnpm exec wrangler secret put VISIT_SALT --config worker/wrangler.toml`,
+  `pnpm exec wrangler secret put OWNER_LINK_SECRET --config worker/wrangler.toml`,
+  redeploy the Worker, then open
+  `https://<any-demo>.web-express.com.ar/__wx-owner?k=<secret>` once per
+  browser/device. Changing `VISIT_SALT` changes every visitor_key (dedupe
+  restarts; harmless).
+- Rejected: open-tracking pixels and redirect/shortener links (deliverability,
+  scanners trigger them too); a D1 read before each insert (extra round trip
+  for nothing); recording assets (rows/day).
+
 ## Rejected
 
 - Trusting the `<shard>.pages.dev` alias (stale edge cache above); purging the

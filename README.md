@@ -335,6 +335,34 @@ add a name there whenever a real DNS record is added, then redeploy the Worker) 
 through with `fetch(request)`, and so does any host when the D1 lookup fails (never
 cached); other methods on a demo get 405.
 
+#### Demo-visit tracking
+
+Each demo page view (GET answered 200 `text/html`, or 304 when the request
+has `Sec-Fetch-Dest: document`, i.e. a browser revisit) writes at most one row to
+D1 `demo_visits` (factory-cli `migrations/d1/0016_demo_visits.sql`): slug,
+`lead_id` (from `demo_placements`), time, `source` (`email` when the URL has
+`?e=1`, else `direct`), path, `cf.country`, `cf.asn`, `ua_class`
+(`browser`/`bot`/`scanner`, `worker/src/visitor.js`), `is_owner` and
+`visitor_key` (first 32 hex of sha256 of `VISIT_SALT|ip|UA`; the IP is never
+stored). The same visitor on the same demo within 30 min is not recorded
+again (deduped inside the INSERT). Assets are never recorded; the first asset
+from a visitor within 2 min of a recorded page view sets `asset_loaded = 1`
+(one UPDATE; assets without that Cache API marker never touch D1). Tracking
+runs in `ctx.waitUntil` and never changes or fails the response.
+
+Owner mode keeps your own visits out of the numbers (`is_owner = 1`). Setup
+(secrets, never in `wrangler.toml`):
+
+```
+pnpm exec wrangler secret put VISIT_SALT --config worker/wrangler.toml
+pnpm exec wrangler secret put OWNER_LINK_SECRET --config worker/wrangler.toml
+```
+
+Then open `https://<any-demo>.web-express.com.ar/__wx-owner?k=<secret>` once
+per browser/device: it sets the `wx_owner` cookie for every demo host (400
+days). A wrong or missing key is served like any other path. Without
+`VISIT_SALT` nothing is tracked; without `OWNER_LINK_SECRET` the owner link is off.
+
 ### Rollout (production, in order)
 
 1. Apply factory-cli `migrations/d1/0008_demo_shards.sql` to D1 `web-express` (plain execute, not `migrations apply`): from this repo, `pnpm exec wrangler d1 execute web-express --remote --file ../web_factory/factory-cli/migrations/d1/0008_demo_shards.sql`.

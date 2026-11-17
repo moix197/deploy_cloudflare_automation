@@ -15,7 +15,10 @@ DEMO_BASE_DOMAIN = "web-express.com.ar"
 # Add a name here when you add a DNS record for it, then redeploy the Worker.
 PASSTHROUGH_SUBDOMAINS = "www,zmail._domainkey"
 
-# factory-cli's production D1 "web-express" (holds demo_placements).
+# Secrets (never in this file): VISIT_SALT (visit tracking off without it) and
+# OWNER_LINK_SECRET (owner link off without it). See README "Routing Worker".
+
+# factory-cli's production D1 "web-express" (holds demo_placements and demo_visits).
 [[d1_databases]]
 binding = "DB"
 database_name = "web-express"

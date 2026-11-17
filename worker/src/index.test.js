@@ -50,21 +50,31 @@ test('publicLocation strips the /<slug> prefix from shard redirects only', () =>
   assert.equal(publicLocation('https://elsewhere.com/demo/x', ctx), 'https://elsewhere.com/demo/x');
 });
 
-/** `placements`: slug → shard, or slug → {shard, url} (url = the shard's deployment URL in D1). */
-function fakeEnv(placements) {
+/**
+ * `placements`: slug → shard, or slug → {shard, url} (url = the shard's deployment URL in D1).
+ * `run` answers write statements (recorded in `runs`); default: one row changed.
+ */
+function fakeEnv(placements, { run = async () => ({ meta: { changes: 1 } }) } = {}) {
   const queries = [];
+  const runs = [];
   return {
     queries,
+    runs,
     env: {
       DEMO_BASE_DOMAIN: BASE,
       DB: {
         prepare: (sql) => ({
-          bind: (slug) => ({
+          bind: (...params) => ({
             first: async () => {
+              const [slug] = params;
               queries.push({ sql, slug });
               const placement = placements[slug];
               if (!placement) return null;
               return typeof placement === 'string' ? { shard: placement, url: DEPLOYMENT } : placement;
+            },
+            run: async () => {
+              runs.push({ sql, params });
+              return run();
             },
           }),
         }),
@@ -81,6 +91,7 @@ function fakeCache() {
     put: async (key, response) => {
       entries.set(key, response);
     },
+    delete: async (key) => entries.delete(key),
   };
 }
 
@@ -206,4 +217,138 @@ test('a shard 404 stays as is when the demo has no 404.html', async () => {
   const response = await handleRequest(new Request('https://demo.web-express.com.ar/nope'), env, fakeCtx(), { fetchFn, cache: fakeCache() });
   assert.equal(response.status, 404);
   assert.equal(await response.text(), 'pages 404');
+});
+
+const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
+const OWNER_SECRET = 'owner-secret';
+
+function trackingEnv(options) {
+  const fake = fakeEnv({ demo: 'wx-demos-03' }, options);
+  Object.assign(fake.env, { VISIT_SALT: 'salt', OWNER_LINK_SECRET: OWNER_SECRET });
+  return fake;
+}
+
+function demoRequest(path, headers = {}) {
+  return new Request(`https://demo.web-express.com.ar${path}`, {
+    headers: { 'User-Agent': CHROME_UA, 'CF-Connecting-IP': '203.0.113.7', ...headers },
+  });
+}
+
+/** Shard serving HTML for `/` and `/about/`, anything else as an image. */
+function shardFetch() {
+  return recordingFetch((request) => {
+    const isPage = /\/demo\/(about\/)?$/.test(new URL(request.url).pathname);
+    return new Response('body', { headers: { 'Content-Type': isPage ? 'text/html; charset=utf-8' : 'image/webp' } });
+  });
+}
+
+async function serve(request, env, { fetchFn = shardFetch().fetchFn, cache = fakeCache() } = {}) {
+  const ctx = fakeCtx();
+  const response = await handleRequest(request, env, ctx, { fetchFn, cache });
+  await Promise.all(ctx.pending);
+  return response;
+}
+
+const isInsert = (run) => run.sql.startsWith('INSERT INTO demo_visits');
+const isUpdate = (run) => run.sql.startsWith('UPDATE demo_visits');
+
+test('an HTML page view records one deduped INSERT with the visit fields', async () => {
+  const { env, runs } = trackingEnv();
+  const response = await serve(demoRequest('/about/?e=1'), env);
+  assert.equal(await response.text(), 'body');
+  assert.equal(runs.length, 1);
+  assert.ok(isInsert(runs[0]));
+  assert.match(runs[0].sql, /WHERE NOT EXISTS \(SELECT 1 FROM demo_visits WHERE slug = \? AND visitor_key = \? AND at > \?\)/);
+  const [slug, leadSlug, at, source, path, country, asn, uaClass, isOwner, key, dedupeSlug, dedupeKey, cutoff] = runs[0].params;
+  assert.deepEqual([slug, leadSlug, source, path, country, asn, uaClass, isOwner], ['demo', 'demo', 'email', '/about/', null, null, 'browser', 0]);
+  assert.match(key, /^[0-9a-f]{32}$/);
+  assert.deepEqual([dedupeSlug, dedupeKey], ['demo', key]);
+  assert.equal(Date.parse(at) - Date.parse(cutoff), 30 * 60 * 1000);
+  assert.ok(!JSON.stringify(runs[0].params).includes('203.0.113.7'));
+});
+
+test('assets, HEAD, non-200 pages and a missing VISIT_SALT record nothing', async () => {
+  const { env, runs } = trackingEnv();
+  await serve(demoRequest('/img/a.webp'), env);
+  await serve(new Request('https://demo.web-express.com.ar/', { method: 'HEAD' }), env);
+  const { fetchFn } = recordingFetch(() => new Response('gone', { status: 404, headers: { 'Content-Type': 'text/html' } }));
+  await serve(demoRequest('/nope'), env, { fetchFn });
+  delete env.VISIT_SALT;
+  await serve(demoRequest('/'), env);
+  assert.equal(runs.length, 0);
+});
+
+test('a throwing D1 write still serves the page untouched', async () => {
+  const { env } = trackingEnv({ run: async () => { throw new Error('d1 down'); } });
+  const response = await serve(demoRequest('/'), env);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'body');
+});
+
+test('the owner link sets the owner cookie; a wrong or missing key falls through unchanged', async () => {
+  const { env, runs } = trackingEnv();
+  const { calls, fetchFn } = shardFetch();
+  const owner = await serve(demoRequest(`/__wx-owner?k=${OWNER_SECRET}`), env, { fetchFn });
+  assert.equal(owner.status, 200);
+  assert.equal(owner.headers.get('Cache-Control'), 'no-store');
+  assert.match(await owner.text(), /Owner mode on/);
+  assert.match(owner.headers.get('Set-Cookie'),
+    /^wx_owner=[0-9a-f]{64}; Domain=\.web-express\.com\.ar; Path=\/; Max-Age=34560000; Secure; HttpOnly; SameSite=Lax$/);
+  assert.equal(calls.length, 0);
+  assert.equal(runs.length, 0);
+  for (const path of ['/__wx-owner?k=wrong', '/__wx-owner']) {
+    const response = await serve(demoRequest(path), env, { fetchFn });
+    assert.equal(response.headers.get('Set-Cookie'), null);
+    assert.equal(calls.at(-1).url, `${DEPLOYMENT}/demo${path}`);
+  }
+  delete env.OWNER_LINK_SECRET;
+  const noSecret = await serve(demoRequest('/__wx-owner?k=undefined'), env, { fetchFn });
+  assert.equal(noSecret.headers.get('Set-Cookie'), null);
+});
+
+test('the owner cookie marks the visit is_owner = 1', async () => {
+  const { env, runs } = trackingEnv();
+  const owner = await serve(demoRequest(`/__wx-owner?k=${OWNER_SECRET}`), env);
+  const cookie = owner.headers.get('Set-Cookie').split(';')[0];
+  await serve(demoRequest('/', { Cookie: `theme=dark; ${cookie}` }), env);
+  await serve(demoRequest('/', { Cookie: 'wx_owner=forged', 'CF-Connecting-IP': '198.51.100.1' }), env);
+  assert.deepEqual(runs.map((run) => run.params[8]), [1, 0]);
+});
+
+test('an asset after a recorded page view runs the single asset_loaded UPDATE once', async () => {
+  const { env, runs } = trackingEnv();
+  const cache = fakeCache();
+  await serve(demoRequest('/'), env, { cache });
+  await serve(demoRequest('/img/a.webp'), env, { cache });
+  await serve(demoRequest('/img/b.webp'), env, { cache });
+  await serve(demoRequest('/img/a.webp', { 'CF-Connecting-IP': '198.51.100.1' }), env, { cache });
+  assert.deepEqual(runs.map((run) => (isInsert(run) ? 'insert' : isUpdate(run) && 'update')), ['insert', 'update']);
+  const [slug, key, cutoff] = runs[1].params;
+  assert.deepEqual([slug, key], ['demo', runs[0].params[9]]);
+  assert.match(runs[1].sql, /SET asset_loaded = 1\s+WHERE slug = \? AND visitor_key = \? AND asset_loaded = 0 AND at > \?/);
+  assert.ok(Date.parse(cutoff) < Date.parse(runs[0].params[2]));
+});
+
+test('a 304 for a document is a page view; a 304 for anything else is only an asset', async () => {
+  const notModified = recordingFetch(() => new Response(null, { status: 304 })).fetchFn;
+  const { env, runs } = trackingEnv();
+  const cache = fakeCache();
+  const response = await serve(demoRequest('/?e=1', { 'Sec-Fetch-Dest': 'document' }), env, { fetchFn: notModified, cache });
+  assert.equal(response.status, 304);
+  await serve(demoRequest('/img/a.webp', { 'Sec-Fetch-Dest': 'image' }), env, { fetchFn: notModified, cache });
+  assert.deepEqual(runs.map((run) => (isInsert(run) ? 'insert' : isUpdate(run) && 'update')), ['insert', 'update']);
+  assert.deepEqual([runs[0].params[3], runs[0].params[4]], ['email', '/']);
+
+  const { env: noDest, runs: noDestRuns } = trackingEnv();
+  await serve(demoRequest('/'), noDest, { fetchFn: notModified });
+  await serve(demoRequest('/img/a.webp', { 'Sec-Fetch-Dest': 'image' }), noDest, { fetchFn: notModified });
+  assert.equal(noDestRuns.length, 0);
+});
+
+test('a deduped page view (no row inserted) leaves no asset marker', async () => {
+  const { env, runs } = trackingEnv({ run: async () => ({ meta: { changes: 0 } }) });
+  const cache = fakeCache();
+  await serve(demoRequest('/'), env, { cache });
+  await serve(demoRequest('/img/a.webp'), env, { cache });
+  assert.equal(runs.filter(isUpdate).length, 0);
 });

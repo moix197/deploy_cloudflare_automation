@@ -1,7 +1,9 @@
 import { demoNotFound } from './notFound.js';
+import { ownerLinkResponse } from './owner.js';
 import {
   demoSlugFromHost, isShardName, passthroughSubdomains, PROXIED_METHODS, publicLocation, upstreamOrigin, upstreamUrl,
 } from './routing.js';
+import { trackVisit } from './visits.js';
 
 // Short: the cached origin names a deployment, so a redeploy/delete shows once it expires.
 const KNOWN_TTL_S = 15;
@@ -57,12 +59,16 @@ async function proxyToShard(request, { origin, slug, url, fetchFn }) {
  * A slug with no placement gets the branded 404. The apex, PASSTHROUGH_SUBDOMAINS
  * and non-slug hosts go on to their origin untouched, and so does any host when
  * the D1 lookup fails (a D1 outage must not turn every demo into a 404).
+ * `/__wx-owner?k=<secret>` on a demo host turns on owner mode (see owner.js);
+ * demo responses feed visit tracking, which never changes them (visits.js).
  * `fetchFn`/`cache` are injectable for tests; the Worker runtime passes the real ones.
  */
 export async function handleRequest(request, env, ctx, { fetchFn = fetch, cache = caches.default } = {}) {
   const url = new URL(request.url);
   const slug = demoSlugFromHost(url.hostname, env.DEMO_BASE_DOMAIN, passthroughSubdomains(env.PASSTHROUGH_SUBDOMAINS));
   if (!slug) return fetchFn(request);
+  const ownerPage = await ownerLinkResponse(url, env);
+  if (ownerPage) return ownerPage;
   let origin;
   try {
     origin = await lookupOrigin({ slug, env, ctx, cache });
@@ -73,7 +79,9 @@ export async function handleRequest(request, env, ctx, { fetchFn = fetch, cache 
   if (!PROXIED_METHODS.has(request.method)) {
     return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   }
-  return proxyToShard(request, { origin, slug, url, fetchFn });
+  const response = await proxyToShard(request, { origin, slug, url, fetchFn });
+  trackVisit({ request, response, url, slug, env, ctx, cache });
+  return response;
 }
 
 export default {
