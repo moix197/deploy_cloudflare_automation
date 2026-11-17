@@ -1,7 +1,7 @@
 import { resolve as resolvePath } from 'node:path';
 
 import { resolveAuth, resolveDemosDatabaseId } from '../../auth/resolveAuth.js';
-import { CliError, PlacementNotFoundError, ShardFileLimitError, ShardsFullError, ShardSubdomainMismatchError } from '../../errors.js';
+import { CliError, PlacementNotFoundError, ShardFileLimitError, ShardsFullError, ShardStateMismatchError, ShardSubdomainMismatchError } from '../../errors.js';
 import { cloudflareFetch } from '../cloudflareApi.js';
 import { ensureProject } from '../ensureProject.js';
 import { validateDir, validateSlug } from '../validate.js';
@@ -9,9 +9,9 @@ import { walkAssets } from './assets.js';
 import { createD1Executor } from './d1.js';
 import { mergeSlugManifest, toSlugManifest } from './manifest.js';
 import {
+  collectShardManifest,
   commitManifests,
   DEFAULT_MANIFESTS_DIR,
-  loadShardManifest,
   removeManifestRecord,
   toManifestRecord,
   writeManifestRecord,
@@ -55,9 +55,15 @@ function shardedContext({
   return { ...auth, db: executor, cloudflareFetchFn, lockOptions, waitUntilServingFn, manifestsDir, commitManifestsFn };
 }
 
-/** Every other slug's live files on the lease's shard, verified against D1 (throws SHARD_STATE_MISMATCH). */
-async function loadOtherSlugs(ctx, lease, slug) {
-  return loadShardManifest(ctx.manifestsDir, lease.shard, await readShardPlacements(ctx.db, lease.shard), slug);
+/**
+ * Every other slug's live files on the lease's shard, verified against D1. A missing or stale one
+ * throws SHARD_STATE_MISMATCH, unless `skipStale`: then it is left out of the deployment (taken
+ * offline) and returned in `skipped`.
+ */
+async function loadOtherSlugs(ctx, lease, slug, { skipStale = false } = {}) {
+  const { manifest, stale } = collectShardManifest(ctx.manifestsDir, lease.shard, await readShardPlacements(ctx.db, lease.shard), slug);
+  if (stale.length && !skipStale) throw new ShardStateMismatchError(lease.shard, stale);
+  return { manifest, skipped: stale };
 }
 
 async function pickShard(db, slug, fileCount) {
@@ -105,21 +111,22 @@ function probePath(manifest) {
  * D1 first: a lost lease records nothing, and a D1 row whose file never got
  * written is caught as a fingerprint mismatch by the shard's next deploy.
  */
-async function recordLiveManifest(ctx, lease, record) {
-  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, record }));
+async function recordLiveManifest(ctx, lease, record, skipped) {
+  await commitUnderLease(ctx.db, lease, slugWriteStatements({ lease, record, skipped }));
   const path = writeManifestRecord(ctx.manifestsDir, record);
   const committed = ctx.commitManifestsFn(ctx.manifestsDir, `Manifest: ${record.slug} live on ${record.shard} (${record.fileCount} files)`);
   return { path, fingerprint: record.fingerprint, committed };
 }
 
-async function publishSlug(ctx, lease, { slug, leadId, slugManifest }) {
+async function publishSlug(ctx, lease, { slug, leadId, slugManifest, skipStale }) {
   await assertPlacementOn(ctx.db, slug, lease.shard);
-  const merged = mergeSlugManifest(await loadOtherSlugs(ctx, lease, slug), slug, slugManifest);
+  const others = await loadOtherSlugs(ctx, lease, slug, { skipStale });
+  const merged = mergeSlugManifest(others.manifest, slug, slugManifest);
   assertWithinPagesLimit(lease.shard, merged);
   const deployment = await publishManifest(ctx, lease, merged);
   const record = toManifestRecord({ slug, shard: lease.shard, leadId, files: slugManifest, deployedAt: isoNow(), deploymentUrl: deployment.url });
-  const manifest = await recordLiveManifest(ctx, lease, record);
-  return { deployment, manifest };
+  const manifest = await recordLiveManifest(ctx, lease, record, others.skipped);
+  return { deployment, manifest, skipped: others.skipped };
 }
 
 /**
@@ -128,9 +135,10 @@ async function publishSlug(ctx, lease, { slug, leadId, slugManifest }) {
  * missing assets, then, under the shard's lease, merge its entries with the
  * other demos' local manifests (each verified against its D1 fingerprint),
  * create the deployment, record placement + fingerprint in one D1
- * transaction and write this slug's manifest file.
+ * transaction and write this slug's manifest file. `skipStale` leaves
+ * neighbours with a missing/stale manifest out (offline) instead of aborting.
  */
-export async function deploySharded({ dir, slug, leadId = null, onProgress = noop, ...options } = {}) {
+export async function deploySharded({ dir, slug, leadId = null, skipStale = false, onProgress = noop, ...options } = {}) {
   validateSlug(slug);
   const absoluteDir = resolvePath(validateDir(dir));
   const ctx = shardedContext(options);
@@ -144,9 +152,9 @@ export async function deploySharded({ dir, slug, leadId = null, onProgress = noo
   const slugManifest = toSlugManifest(slug, assets);
   // Timestamps let concurrent same-shard deploys show they ran one after the other.
   const lock = { requestedAt: isoNow() };
-  const { deployment, manifest } = await withShardLock(ctx.db, shard, (lease) => {
+  const { deployment, manifest, skipped } = await withShardLock(ctx.db, shard, (lease) => {
     lock.acquiredAt = isoNow();
-    return publishSlug(ctx, lease, { slug, leadId, slugManifest });
+    return publishSlug(ctx, lease, { slug, leadId, slugManifest, skipStale });
   }, ctx.lockOptions);
   lock.releasedAt = isoNow();
   return {
@@ -159,25 +167,30 @@ export async function deploySharded({ dir, slug, leadId = null, onProgress = noo
     uploaded,
     lock,
     manifest,
+    skipped,
   };
 }
 
-async function unpublishSlug(ctx, lease, slug) {
-  const remaining = await loadOtherSlugs(ctx, lease, slug);
-  const deployment = await publishManifest(ctx, lease, remaining);
-  await commitUnderLease(ctx.db, lease, slugRemoveStatements({ lease, slug, deploymentUrl: deployment.url, updatedAt: isoNow() }));
+async function unpublishSlug(ctx, lease, slug, skipStale) {
+  const { manifest, skipped } = await loadOtherSlugs(ctx, lease, slug, { skipStale });
+  const deployment = await publishManifest(ctx, lease, manifest);
+  await commitUnderLease(ctx.db, lease, slugRemoveStatements({ lease, slug, deploymentUrl: deployment.url, updatedAt: isoNow(), skipped }));
   removeManifestRecord(ctx.manifestsDir, lease.shard, slug);
   ctx.commitManifestsFn(ctx.manifestsDir, `Manifest: ${slug} removed from ${lease.shard}`);
+  return skipped;
 }
 
-/** Takes `/<slug>/` out of its shard: redeploys the shard without it and drops its placement and manifest file. */
-export async function removeSharded({ slug, ...options } = {}) {
+/**
+ * Takes `/<slug>/` out of its shard: redeploys the shard without it and drops its placement and
+ * manifest file. `skipStale` as in deploySharded.
+ */
+export async function removeSharded({ slug, skipStale = false, ...options } = {}) {
   validateSlug(slug);
   const ctx = shardedContext(options);
   const placement = await getPlacement(ctx.db, slug);
   if (!placement) throw new PlacementNotFoundError(slug);
-  await withShardLock(ctx.db, placement.shard, (lease) => unpublishSlug(ctx, lease, slug), ctx.lockOptions);
-  return { status: 'removed', slug, shard: placement.shard };
+  const skipped = await withShardLock(ctx.db, placement.shard, (lease) => unpublishSlug(ctx, lease, slug, skipStale), ctx.lockOptions);
+  return { status: 'removed', slug, shard: placement.shard, skipped };
 }
 
 /**

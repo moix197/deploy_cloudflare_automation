@@ -41,7 +41,8 @@ Opt-in `--sharded` mode (default mode untouched):
   load every OTHER slug's local manifest and verify it (file present, its
   files hash to its own `fingerprint`, all paths under `/<slug>/`,
   `fingerprint` and `deployedAt` equal D1's `fingerprint` and `updated_at`);
-  any problem aborts with `SHARD_STATE_MISMATCH` listing every bad slug,
+  any problem aborts with `SHARD_STATE_MISMATCH` listing every bad slug
+  (`--json` error `details: {shard, stale: [{slug, leadId, problem}]}`),
   before anything is deployed. Then merge A's new files, create the
   deployment, commit placement (+ fingerprint) + `shard_deployments` (2 rows,
   lease-guarded), write A's file. Delete: same verification, redeploy
@@ -60,7 +61,21 @@ Opt-in `--sharded` mode (default mode untouched):
   deploy pass: the shard would be republished without that demo's real
   files. Caveat: the redeployed demo is excluded from the check, but every
   other slug on the shard still has to verify, so with two stale demos on one
-  shard neither can be redeployed until one is fixed by hand (owner call).
+  shard neither could be redeployed (deadlock).
+- `--skip-stale` (owner decision 2026-11-17, opt-in; default unchanged): under
+  the same lease, stale/missing neighbours are left out of the deployment
+  instead of aborting. Pages deploys are full replacements, so they go
+  offline (Worker 404). Their placement is kept (same shard, file budget
+  reserved) and, in the same lease-guarded D1 transaction, their
+  `fingerprint` is set to the sentinel `'offline'` (`OFFLINE_FINGERPRINT`);
+  `updated_at` is untouched (factory's reconcile reads it as a deploy). An
+  offline placement is not a neighbour: never verified, never merged, never
+  blocks a deploy. Redeploying that slug writes a real fingerprint and it is a
+  verified neighbour again. Deploy/delete JSON returns `skipped: [{slug,
+  leadId, problem}]`. Why a sentinel and not NULL: NULL keeps meaning "no
+  fingerprint recorded" (still a mismatch), and no migration is needed.
+  factory-cli decides when to pass it (stage-based, see its
+  `.ai/data/demo-shards.md`).
 - Upload uses the Pages direct-upload REST flow wrangler uses internally
   (upload-token JWT → check-missing → upload → upsert-hashes → multipart
   deployment). Hashes and content types must equal wrangler's byte-for-byte;

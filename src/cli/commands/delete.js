@@ -3,7 +3,7 @@ import { removeSharded } from '../../lib/sharded/shardedDeploy.js';
 import { CliError } from '../../errors.js';
 
 function parseDeleteArgs(args) {
-  const options = { sharded: args.includes('--sharded') };
+  const options = { sharded: args.includes('--sharded'), skipStale: args.includes('--skip-stale') };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '--slug') options.slug = args[i + 1];
     if (args[i] === '--d1-database') options.databaseId = args[i + 1];
@@ -12,10 +12,10 @@ function parseDeleteArgs(args) {
 }
 
 export async function deleteCommand(args, { json } = {}) {
-  const { slug, sharded, databaseId } = parseDeleteArgs(args);
+  const { slug, sharded, databaseId, skipStale } = parseDeleteArgs(args);
   if (!slug) {
     throw new CliError('delete requires --slug <slug>', 'MISSING_ARGUMENT');
   }
-  if (sharded) return removeSharded({ slug, databaseId });
+  if (sharded) return removeSharded({ slug, databaseId, skipStale });
   return deleteProject({ slug });
 }

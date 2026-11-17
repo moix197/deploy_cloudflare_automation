@@ -114,7 +114,7 @@ test('deploys two demos into one shard manifest, redeploys one without touching 
     assert.equal(await deploymentUrl(), redeploy.deploymentUrl);
     assert.ok(redeploy.lock.requestedAt <= redeploy.lock.acquiredAt && redeploy.lock.acquiredAt <= redeploy.lock.releasedAt);
 
-    assert.deepEqual(await removeSharded({ slug: 'alpha', ...options }), { status: 'removed', slug: 'alpha', shard: 'wx-demos-01' });
+    assert.deepEqual(await removeSharded({ slug: 'alpha', ...options }), { status: 'removed', slug: 'alpha', shard: 'wx-demos-01', skipped: [] });
     assert.deepEqual(pages.deployments.at(-1), { shard: 'wx-demos-01', branch: 'main', manifest: {} });
     assert.equal(existsSync(manifestFilePath(state.manifestsDir, 'wx-demos-01', 'alpha')), false);
     assert.deepEqual(await db.query("SELECT * FROM demo_placements WHERE slug = 'alpha'"), []);
@@ -290,4 +290,84 @@ test('removing a demo is refused while another demo on its shard has stale local
     );
     assert.equal(pages.deployments.length, 0);
     assert.ok(readManifestRecord(state.manifestsDir, 'wx-demos-01', 'alpha'));
+  }));
+
+const threeSites = { a: { 'index.html': 'A' }, b: { 'index.html': 'B' }, c: { 'index.html': 'C' } };
+
+/** alpha, beta and gamma live on wx-demos-01. */
+async function threeDemosOnOneShard({ a, b, c }, state) {
+  const db = createSqliteD1();
+  const pages = fakePages();
+  const options = { db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn, ...state };
+  await deploySharded({ dir: a, slug: 'alpha', ...options });
+  for (const [slug, dir] of [['beta', b], ['gamma', c]]) {
+    await placeSlug(db, slug, 'wx-demos-01');
+    await deploySharded({ dir, slug, ...options });
+  }
+  return { db, pages, options };
+}
+
+const fingerprintOfSlug = async (db, slug) => (await db.query('SELECT fingerprint FROM demo_placements WHERE slug = ?', [slug]))[0]?.fingerprint;
+
+test('skipStale with one stale neighbour deploys without it, keeps its placement and marks it offline', () =>
+  withSites(threeSites, async (sites, state) => {
+    const { db, pages, options } = await threeDemosOnOneShard(sites, state);
+    const updatedAt = (await db.query("SELECT updated_at FROM demo_placements WHERE slug = 'beta'"))[0].updated_at;
+    unlinkSync(manifestFilePath(state.manifestsDir, 'wx-demos-01', 'beta'));
+
+    const result = await deploySharded({ dir: sites.a, slug: 'alpha', skipStale: true, ...options });
+    assert.deepEqual(result.skipped, [{ slug: 'beta', leadId: null, problem: 'no local manifest' }]);
+    assert.deepEqual(Object.keys(pages.deployments.at(-1).manifest).sort(), ['/alpha/index.html', '/gamma/index.html']);
+    assert.deepEqual(await db.query("SELECT shard, fingerprint, updated_at FROM demo_placements WHERE slug = 'beta'"), [{ shard: 'wx-demos-01', fingerprint: 'offline', updated_at: updatedAt }]);
+
+    const plain = await deploySharded({ dir: sites.a, slug: 'alpha', ...options });
+    assert.deepEqual(plain.skipped, [], 'an offline slug no longer blocks a default deploy');
+    assert.deepEqual(Object.keys(pages.deployments.at(-1).manifest).sort(), ['/alpha/index.html', '/gamma/index.html']);
+  }));
+
+test('skipStale resolves the two-stale-slugs deadlock; each skipped slug redeploys and is a valid neighbour again', () =>
+  withSites(threeSites, async (sites, state) => {
+    const { db, pages, options } = await threeDemosOnOneShard(sites, state);
+    unlinkSync(manifestFilePath(state.manifestsDir, 'wx-demos-01', 'alpha'));
+    await db.query("UPDATE demo_placements SET updated_at = '2099-01-01T00:00:00.000Z' WHERE slug = 'gamma'");
+
+    // Deadlock without the flag: each stale slug is blocked by the other.
+    await assert.rejects(deploySharded({ dir: sites.a, slug: 'alpha', ...options }), ShardStateMismatchError);
+    await assert.rejects(deploySharded({ dir: sites.c, slug: 'gamma', ...options }), ShardStateMismatchError);
+
+    const first = await deploySharded({ dir: sites.a, slug: 'alpha', skipStale: true, ...options });
+    assert.deepEqual(first.skipped.map((s) => s.slug), ['gamma']);
+    assert.equal(await fingerprintOfSlug(db, 'gamma'), 'offline');
+
+    const second = await deploySharded({ dir: sites.c, slug: 'gamma', ...options });
+    assert.deepEqual(second.skipped, []);
+    assert.equal(await fingerprintOfSlug(db, 'gamma'), readManifestRecord(state.manifestsDir, 'wx-demos-01', 'gamma').fingerprint);
+    assert.deepEqual(Object.keys(pages.deployments.at(-1).manifest).sort(), ['/alpha/index.html', '/beta/index.html', '/gamma/index.html']);
+
+    await deploySharded({ dir: sites.b, slug: 'beta', ...options });
+    assert.deepEqual(Object.keys(pages.deployments.at(-1).manifest).sort(), ['/alpha/index.html', '/beta/index.html', '/gamma/index.html'], 'gamma is a verified neighbour again');
+  }));
+
+test('remove with skipStale takes the stale neighbour offline instead of refusing', () =>
+  withSites(twoSites, async (sites, state) => {
+    const { db } = await twoDemosOnOneShard(sites, state);
+    await db.query("UPDATE demo_placements SET fingerprint = 'other' WHERE slug = 'beta'");
+    const pages = fakePages();
+    const result = await removeSharded({ slug: 'alpha', skipStale: true, db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: pages.cloudflareFetchFn, ...state });
+    assert.deepEqual(result.skipped, [{ slug: 'beta', leadId: null, problem: 'fingerprint differs from D1' }]);
+    assert.deepEqual(pages.deployments.at(-1).manifest, {});
+    assert.equal(await fingerprintOfSlug(db, 'beta'), 'offline');
+    assert.deepEqual(await db.query("SELECT * FROM demo_placements WHERE slug = 'alpha'"), []);
+  }));
+
+test('SHARD_STATE_MISMATCH carries the stale slugs with their lead ids', () =>
+  withSites(twoSites, async (sites, state) => {
+    const { db, redeployAlpha } = await twoDemosOnOneShard(sites, state);
+    await db.query("UPDATE demo_placements SET lead_id = 42 WHERE slug = 'beta'");
+    unlinkSync(manifestFilePath(state.manifestsDir, 'wx-demos-01', 'beta'));
+    await redeployAlpha();
+    await assert.rejects(deploySharded({ dir: sites.a, slug: 'alpha', db, resolveAuthFn, waitUntilServingFn, cloudflareFetchFn: fakePages().cloudflareFetchFn, ...state }), (error) => {
+      assert.deepEqual(error.details, { shard: 'wx-demos-01', stale: [{ slug: 'beta', leadId: 42, problem: 'no local manifest' }] });
+      return true;
+    });
   }));

@@ -64,22 +64,35 @@ export function manifestProblem(record, placement) {
   return null;
 }
 
+// D1 fingerprint of a slug a `skipStale` deploy left out of its shard: still placed (keeps its slot and
+// file budget) but not served, so it is neither a neighbour to verify nor a reason to abort.
+export const OFFLINE_FINGERPRINT = 'offline';
+
 /**
  * The shard's manifest without `exceptSlug`, built from the local files of every
- * other slug placed on it. Any missing or stale file aborts: deploying a shard
- * from incomplete state would silently drop another demo's files.
+ * other live slug placed on it, plus every slug whose file is missing or stale
+ * (`{slug, leadId, problem}`).
  */
-export function loadShardManifest(dir, shard, placements, exceptSlug) {
+export function collectShardManifest(dir, shard, placements, exceptSlug) {
   const manifest = {};
-  const problems = [];
+  const stale = [];
   for (const placement of placements) {
-    if (placement.slug === exceptSlug) continue;
+    if (placement.slug === exceptSlug || placement.fingerprint === OFFLINE_FINGERPRINT) continue;
     const record = readManifestRecord(dir, shard, placement.slug);
     const problem = manifestProblem(record, placement);
-    if (problem) problems.push(`${placement.slug}: ${problem}`);
+    if (problem) stale.push({ slug: placement.slug, leadId: placement.lead_id ?? null, problem });
     else Object.assign(manifest, record.files);
   }
-  if (problems.length) throw new ShardStateMismatchError(shard, problems);
+  return { manifest, stale };
+}
+
+/**
+ * Like collectShardManifest, but any missing or stale file aborts: deploying a
+ * shard from incomplete state would silently drop another demo's files.
+ */
+export function loadShardManifest(dir, shard, placements, exceptSlug) {
+  const { manifest, stale } = collectShardManifest(dir, shard, placements, exceptSlug);
+  if (stale.length) throw new ShardStateMismatchError(shard, stale);
   return manifest;
 }
 

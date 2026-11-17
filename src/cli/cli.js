@@ -30,7 +30,7 @@ function printResult(result, json) {
 
 function printError(error, json) {
   if (json) {
-    console.error(JSON.stringify({ ok: false, code: error.code ?? 'ERROR', message: error.message }));
+    console.error(JSON.stringify({ ok: false, code: error.code ?? 'ERROR', message: error.message, ...(error.details ? { details: error.details } : {}) }));
     return;
   }
   console.error(`Error: ${error.message}`);

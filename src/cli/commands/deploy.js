@@ -3,7 +3,7 @@ import { deploySharded } from '../../lib/sharded/shardedDeploy.js';
 import { CliError } from '../../errors.js';
 
 function parseDeployArgs(args) {
-  const options = { sharded: args.includes('--sharded') };
+  const options = { sharded: args.includes('--sharded'), skipStale: args.includes('--skip-stale') };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '--dir') options.dir = args[i + 1];
     if (args[i] === '--slug') options.slug = args[i + 1];
@@ -13,9 +13,9 @@ function parseDeployArgs(args) {
   return options;
 }
 
-async function deployShardedCommand({ dir, slug, leadId, databaseId }) {
-  const result = await deploySharded({ dir, slug, leadId: Number.isInteger(leadId) ? leadId : null, databaseId });
-  return { status: result.status, url: result.url, slug: result.slug, shard: result.shard, files: result.files, uploaded: result.uploaded, lock: result.lock, manifest: result.manifest };
+async function deployShardedCommand({ dir, slug, leadId, databaseId, skipStale }) {
+  const result = await deploySharded({ dir, slug, leadId: Number.isInteger(leadId) ? leadId : null, databaseId, skipStale });
+  return { status: result.status, url: result.url, slug: result.slug, shard: result.shard, files: result.files, uploaded: result.uploaded, lock: result.lock, manifest: result.manifest, skipped: result.skipped };
 }
 
 export async function deployCommand(args, { json } = {}) {
