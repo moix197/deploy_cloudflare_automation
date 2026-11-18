@@ -50,6 +50,10 @@ test('visitSource: email only for e=1', () => {
   assert.equal(source(''), 'direct');
   assert.equal(source('?e=0'), 'direct');
   assert.equal(source('?e=11'), 'direct');
+  assert.equal(source('?w=1'), 'whatsapp');
+  assert.equal(source('about/?x=2&w=1'), 'whatsapp');
+  assert.equal(source('?w=0'), 'direct');
+  assert.equal(source('?e=1&w=1'), 'email');
 });
 
 test('visitorKey: deterministic 32 hex, depends on salt/ip/ua, never contains the IP', async () => {

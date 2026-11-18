@@ -105,7 +105,7 @@ redirects or shorteners: the Worker already sees every request.
 - What: one D1 `demo_visits` row per page view (GET, upstream 200
   `text/html`, or 304 with request `Sec-Fetch-Dest: document`: Pages answers a
   browser revisit with a bare 304 that has no Content-Type; factory-cli migration 0016): slug, `lead_id` copied from
-  `demo_placements`, `at` (ISO UTC), `source` (`email` iff `e=1`), pathname,
+  `demo_placements`, `at` (ISO UTC), `source` (`email` iff `e=1`, `whatsapp` iff `w=1`; factory-cli migration 0017 widens the CHECK), pathname,
   `cf.country`, `cf.asn`, `ua_class`, `is_owner`, `visitor_key` =
   sha256(`VISIT_SALT|ip|UA`)[0..32]. Raw IPs are never stored.
 - D1 budget (100k rows written/day, free tier for good): at most one write per

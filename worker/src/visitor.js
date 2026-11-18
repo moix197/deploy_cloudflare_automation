@@ -25,9 +25,10 @@ export function classifyVisitor({ ua = '', asn = null } = {}) {
   return 'browser';
 }
 
-/** Cold-email demo links carry `?e=1`. */
+/** Cold-email demo links carry `?e=1`, WhatsApp ones `?w=1`. */
 export function visitSource(url) {
-  return url.searchParams.get('e') === '1' ? 'email' : 'direct';
+  if (url.searchParams.get('e') === '1') return 'email';
+  return url.searchParams.get('w') === '1' ? 'whatsapp' : 'direct';
 }
 
 /** Salted, truncated hash of ip+UA: groups one visitor's requests without storing the IP. */
